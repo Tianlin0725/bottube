@@ -47,8 +47,14 @@ MAX_VIDEO_DURATION = 8  # seconds - short-form content only
 ALLOWED_VIDEO_EXT = {".mp4", ".webm", ".avi", ".mkv", ".mov"}
 ALLOWED_THUMB_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.2.0"
 APP_START_TS = time.time()
+
+# RTC reward amounts
+RTC_REWARD_UPLOAD = 0.05       # Uploading a video
+RTC_REWARD_VIEW = 0.0001       # Per view (paid to video creator)
+RTC_REWARD_COMMENT = 0.001     # Posting a comment (paid to commenter)
+RTC_REWARD_LIKE_RECEIVED = 0.001  # Receiving a like (paid to video creator)
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -57,10 +63,24 @@ APP_START_TS = time.time()
 app = Flask(__name__, template_folder=str(TEMPLATE_DIR))
 app.config["MAX_CONTENT_LENGTH"] = MAX_VIDEO_SIZE + 10 * 1024 * 1024  # extra for form data
 
-# URL prefix: when behind nginx at /bottube/, templates need prefixed URLs.
-# Flask itself sees stripped paths (nginx proxy_pass with trailing slash strips prefix).
-URL_PREFIX = os.environ.get("BOTTUBE_PREFIX", "/bottube").rstrip("/")
-app.jinja_env.globals["P"] = URL_PREFIX
+# URL prefix: when behind nginx at /bottube/ on shared IP, templates need prefixed URLs.
+# When accessed via bottube.ai (own domain), prefix is empty.
+# Dynamic per-request via before_request hook.
+DOMAIN_PREFIX = ""  # bottube.ai serves at root
+IP_PREFIX = os.environ.get("BOTTUBE_PREFIX", "/bottube").rstrip("/")
+BOTTUBE_DOMAINS = {"bottube.ai", "www.bottube.ai"}
+app.jinja_env.globals["P"] = IP_PREFIX  # default fallback
+
+
+@app.before_request
+def set_url_prefix():
+    """Set URL prefix dynamically: empty for bottube.ai, /bottube for IP access."""
+    host = request.host.split(":")[0].lower()
+    if host in BOTTUBE_DOMAINS:
+        g.prefix = DOMAIN_PREFIX
+    else:
+        g.prefix = IP_PREFIX
+    app.jinja_env.globals["P"] = g.prefix
 
 for d in (VIDEO_DIR, THUMB_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -81,6 +101,15 @@ CREATE TABLE IF NOT EXISTS agents (
     x_handle TEXT DEFAULT '',
     claim_token TEXT DEFAULT '',
     claimed INTEGER DEFAULT 0,
+    -- Wallet addresses for donations
+    rtc_address TEXT DEFAULT '',
+    btc_address TEXT DEFAULT '',
+    eth_address TEXT DEFAULT '',
+    sol_address TEXT DEFAULT '',
+    ltc_address TEXT DEFAULT '',
+    paypal_email TEXT DEFAULT '',
+    -- RTC earnings
+    rtc_balance REAL DEFAULT 0.0,
     created_at REAL NOT NULL,
     last_active REAL
 );
@@ -141,10 +170,22 @@ CREATE TABLE IF NOT EXISTS crossposts (
     created_at REAL NOT NULL
 );
 
+-- RTC earnings ledger
+CREATE TABLE IF NOT EXISTS earnings (
+    id INTEGER PRIMARY KEY,
+    agent_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    reason TEXT NOT NULL,
+    video_id TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_videos_agent ON videos(agent_id);
 CREATE INDEX IF NOT EXISTS idx_videos_created ON videos(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_video ON comments(video_id);
 CREATE INDEX IF NOT EXISTS idx_views_video ON views(video_id);
+CREATE INDEX IF NOT EXISTS idx_earnings_agent ON earnings(agent_id);
 """
 
 
@@ -185,6 +226,18 @@ def gen_video_id(length=11):
 def gen_api_key():
     """Generate an API key for an agent."""
     return f"bottube_sk_{secrets.token_hex(24)}"
+
+
+def award_rtc(db, agent_id: int, amount: float, reason: str, video_id: str = ""):
+    """Award RTC tokens to an agent and log the earning."""
+    db.execute(
+        "UPDATE agents SET rtc_balance = rtc_balance + ? WHERE id = ?",
+        (amount, agent_id),
+    )
+    db.execute(
+        "INSERT INTO earnings (agent_id, amount, reason, video_id, created_at) VALUES (?, ?, ?, ?, ?)",
+        (agent_id, amount, reason, video_id, time.time()),
+    )
 
 
 def require_api_key(f):
@@ -535,6 +588,8 @@ def upload_video():
             scene_description, time.time(),
         ),
     )
+    # Award RTC for upload
+    award_rtc(db, g.agent["id"], RTC_REWARD_UPLOAD, "video_upload", video_id)
     db.commit()
 
     return jsonify({
@@ -705,6 +760,8 @@ def record_view(video_id):
         (video_id, agent_id, ip, time.time()),
     )
     db.execute("UPDATE videos SET views = views + 1 WHERE video_id = ?", (video_id,))
+    # Award RTC to video creator for the view
+    award_rtc(db, row["agent_id"], RTC_REWARD_VIEW, "video_view", video_id)
     db.commit()
 
     d = video_to_dict(row)
@@ -805,6 +862,8 @@ def add_comment(video_id):
            VALUES (?, ?, ?, ?, ?)""",
         (video_id, g.agent["id"], parent_id, content, time.time()),
     )
+    # Award RTC to commenter
+    award_rtc(db, g.agent["id"], RTC_REWARD_COMMENT, "comment", video_id)
     db.commit()
 
     return jsonify({
@@ -812,6 +871,7 @@ def add_comment(video_id):
         "agent_name": g.agent["agent_name"],
         "content": content,
         "video_id": video_id,
+        "rtc_earned": RTC_REWARD_COMMENT,
     }), 201
 
 
@@ -852,7 +912,7 @@ def get_comments(video_id):
 def vote_video(video_id):
     """Like or dislike a video."""
     db = get_db()
-    video = db.execute("SELECT id, likes, dislikes FROM videos WHERE video_id = ?", (video_id,)).fetchone()
+    video = db.execute("SELECT id, agent_id, likes, dislikes FROM videos WHERE video_id = ?", (video_id,)).fetchone()
     if not video:
         return jsonify({"error": "Video not found"}), 404
 
@@ -892,6 +952,8 @@ def vote_video(video_id):
         # New vote
         if vote_val == 1:
             db.execute("UPDATE videos SET likes = likes + 1 WHERE video_id = ?", (video_id,))
+            # Award RTC to video creator for receiving a like
+            award_rtc(db, video["agent_id"], RTC_REWARD_LIKE_RECEIVED, "like_received", video_id)
         else:
             db.execute("UPDATE videos SET dislikes = dislikes + 1 WHERE video_id = ?", (video_id,))
         db.execute(
@@ -1060,6 +1122,105 @@ def feed():
         videos.append(d)
 
     return jsonify({"videos": videos, "page": page})
+
+
+# ---------------------------------------------------------------------------
+# Wallet & Earnings
+# ---------------------------------------------------------------------------
+
+@app.route("/api/agents/me/wallet", methods=["GET", "POST"])
+@require_api_key
+def manage_wallet():
+    """Get or update your donation wallet addresses.
+
+    GET: Returns current wallet addresses and RTC balance.
+    POST: Update wallet addresses (partial update - only fields you send are changed).
+    """
+    db = get_db()
+
+    if request.method == "GET":
+        return jsonify({
+            "agent_name": g.agent["agent_name"],
+            "rtc_balance": g.agent["rtc_balance"],
+            "wallets": {
+                "rtc": g.agent["rtc_address"],
+                "btc": g.agent["btc_address"],
+                "eth": g.agent["eth_address"],
+                "sol": g.agent["sol_address"],
+                "ltc": g.agent["ltc_address"],
+                "paypal": g.agent["paypal_email"],
+            },
+        })
+
+    # POST: Update wallet addresses
+    data = request.get_json(silent=True) or {}
+    allowed_fields = {
+        "rtc": "rtc_address",
+        "btc": "btc_address",
+        "eth": "eth_address",
+        "sol": "sol_address",
+        "ltc": "ltc_address",
+        "paypal": "paypal_email",
+    }
+
+    updates = []
+    params = []
+    for key, col in allowed_fields.items():
+        if key in data:
+            val = str(data[key]).strip()
+            updates.append(f"{col} = ?")
+            params.append(val)
+
+    if not updates:
+        return jsonify({"error": "No wallet fields provided. Use: rtc, btc, eth, sol, ltc, paypal"}), 400
+
+    params.append(g.agent["id"])
+    db.execute(f"UPDATE agents SET {', '.join(updates)} WHERE id = ?", params)
+    db.commit()
+
+    return jsonify({
+        "ok": True,
+        "message": "Wallet addresses updated.",
+        "updated_fields": [k for k in allowed_fields if k in data],
+    })
+
+
+@app.route("/api/agents/me/earnings")
+@require_api_key
+def my_earnings():
+    """Get your RTC balance and earnings history."""
+    db = get_db()
+    page = max(1, request.args.get("page", 1, type=int))
+    per_page = min(100, max(1, request.args.get("per_page", 50, type=int)))
+    offset = (page - 1) * per_page
+
+    rows = db.execute(
+        """SELECT amount, reason, video_id, created_at
+           FROM earnings WHERE agent_id = ?
+           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+        (g.agent["id"], per_page, offset),
+    ).fetchall()
+
+    total = db.execute(
+        "SELECT COUNT(*) FROM earnings WHERE agent_id = ?", (g.agent["id"],)
+    ).fetchone()[0]
+
+    return jsonify({
+        "agent_name": g.agent["agent_name"],
+        "rtc_balance": g.agent["rtc_balance"],
+        "earnings": [
+            {
+                "amount": r["amount"],
+                "reason": r["reason"],
+                "video_id": r["video_id"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ],
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -1273,7 +1434,9 @@ def watch(video_id):
     """Video player page."""
     db = get_db()
     video = db.execute(
-        """SELECT v.*, a.agent_name, a.display_name, a.avatar_url
+        """SELECT v.*, a.agent_name, a.display_name, a.avatar_url,
+                  a.rtc_address, a.btc_address, a.eth_address,
+                  a.sol_address, a.ltc_address, a.paypal_email
            FROM videos v JOIN agents a ON v.agent_id = a.id
            WHERE v.video_id = ?""",
         (video_id,),

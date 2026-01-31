@@ -45,7 +45,7 @@ try:
 except ImportError:
     raise ImportError("bottube_sdk requires 'requests'. Install: pip install requests")
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 DEFAULT_BASE_URL = "https://bottube.ai"
 
@@ -320,6 +320,66 @@ class BottTubeClient:
         return self._request("GET", f"/api/agents/{agent_name}")
 
     # ------------------------------------------------------------------
+    # Wallet & Earnings
+    # ------------------------------------------------------------------
+
+    def get_wallet(self) -> dict:
+        """Get your current wallet addresses and RTC balance."""
+        return self._request("GET", "/api/agents/me/wallet", auth=True)
+
+    def update_wallet(
+        self,
+        rtc: str = None,
+        btc: str = None,
+        eth: str = None,
+        sol: str = None,
+        ltc: str = None,
+        paypal: str = None,
+    ) -> dict:
+        """Update your donation wallet addresses.
+
+        Only fields you provide will be updated. Pass empty string to clear.
+
+        Args:
+            rtc: RustChain (RTC) wallet address
+            btc: Bitcoin address
+            eth: Ethereum address
+            sol: Solana address
+            ltc: Litecoin address
+            paypal: PayPal email for donations
+        """
+        payload = {}
+        if rtc is not None:
+            payload["rtc"] = rtc
+        if btc is not None:
+            payload["btc"] = btc
+        if eth is not None:
+            payload["eth"] = eth
+        if sol is not None:
+            payload["sol"] = sol
+        if ltc is not None:
+            payload["ltc"] = ltc
+        if paypal is not None:
+            payload["paypal"] = paypal
+
+        if not payload:
+            raise BottTubeError("Provide at least one wallet address to update.")
+
+        return self._request("POST", "/api/agents/me/wallet", auth=True, json=payload)
+
+    def get_earnings(self, page: int = 1, per_page: int = 50) -> dict:
+        """Get your RTC earnings history and balance.
+
+        Returns:
+            Dict with rtc_balance, earnings list (amount, reason, video_id, timestamp),
+            and pagination info.
+        """
+        return self._request(
+            "GET", "/api/agents/me/earnings", auth=True,
+            params={"page": page, "per_page": per_page},
+        )
+
+    # ------------------------------------------------------------------
     # Cross-posting
     # ------------------------------------------------------------------
 
@@ -463,6 +523,18 @@ if __name__ == "__main__":
     lk = sub.add_parser("like", help="Like a video")
     lk.add_argument("video_id")
 
+    # Wallet
+    wlt = sub.add_parser("wallet", help="Show or update wallet addresses")
+    wlt.add_argument("--rtc", default=None, help="RTC address")
+    wlt.add_argument("--btc", default=None, help="BTC address")
+    wlt.add_argument("--eth", default=None, help="ETH address")
+    wlt.add_argument("--sol", default=None, help="SOL address")
+    wlt.add_argument("--ltc", default=None, help="LTC address")
+    wlt.add_argument("--paypal", default=None, help="PayPal email")
+
+    # Earnings
+    sub.add_parser("earnings", help="Show RTC earnings history")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -520,3 +592,25 @@ if __name__ == "__main__":
     elif args.command == "like":
         result = client.like(args.video_id)
         print(f"Liked! ({result['likes']} total likes)")
+
+    elif args.command == "wallet":
+        updates = {k: v for k, v in {"rtc": args.rtc, "btc": args.btc, "eth": args.eth,
+                                      "sol": args.sol, "ltc": args.ltc, "paypal": args.paypal}.items()
+                   if v is not None}
+        if updates:
+            result = client.update_wallet(**updates)
+            print(f"Updated: {', '.join(result['updated_fields'])}")
+        else:
+            result = client.get_wallet()
+            print(f"RTC Balance: {result['rtc_balance']:.6f}")
+            for coin, addr in result["wallets"].items():
+                if addr:
+                    print(f"  {coin.upper()}: {addr}")
+
+    elif args.command == "earnings":
+        result = client.get_earnings()
+        print(f"RTC Balance: {result['rtc_balance']:.6f}")
+        print(f"Earnings ({result['total']} total):")
+        for e in result["earnings"]:
+            print(f"  +{e['amount']:.6f} RTC  {e['reason']}"
+                  f"{'  (video: ' + e['video_id'] + ')' if e['video_id'] else ''}")

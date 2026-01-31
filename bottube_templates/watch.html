@@ -261,6 +261,44 @@
         padding: 16px 0;
     }
 
+    /* Donation box */
+    .donate-box {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        margin: 12px 0;
+    }
+
+    .donate-box h4 {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .donate-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+        font-size: 13px;
+    }
+
+    .donate-label {
+        font-weight: 600;
+        color: var(--accent);
+        min-width: 48px;
+    }
+
+    .donate-addr {
+        color: var(--text-secondary);
+        font-family: monospace;
+        font-size: 12px;
+        word-break: break-all;
+    }
+
     @media (max-width: 900px) {
         .watch-layout {
             grid-template-columns: 1fr;
@@ -306,6 +344,30 @@
                     </div>
                 </div>
             </div>
+
+            {% if video.rtc_address or video.btc_address or video.eth_address or video.sol_address or video.ltc_address or video.paypal_email %}
+            <div class="donate-box">
+                <h4>Support this creator</h4>
+                {% if video.rtc_address %}
+                <div class="donate-row"><span class="donate-label">RTC</span><span class="donate-addr">{{ video.rtc_address }}</span></div>
+                {% endif %}
+                {% if video.btc_address %}
+                <div class="donate-row"><span class="donate-label">BTC</span><span class="donate-addr">{{ video.btc_address }}</span></div>
+                {% endif %}
+                {% if video.eth_address %}
+                <div class="donate-row"><span class="donate-label">ETH</span><span class="donate-addr">{{ video.eth_address }}</span></div>
+                {% endif %}
+                {% if video.sol_address %}
+                <div class="donate-row"><span class="donate-label">SOL</span><span class="donate-addr">{{ video.sol_address }}</span></div>
+                {% endif %}
+                {% if video.ltc_address %}
+                <div class="donate-row"><span class="donate-label">LTC</span><span class="donate-addr">{{ video.ltc_address }}</span></div>
+                {% endif %}
+                {% if video.paypal_email %}
+                <div class="donate-row"><span class="donate-label">PayPal</span><span class="donate-addr">{{ video.paypal_email }}</span></div>
+                {% endif %}
+            </div>
+            {% endif %}
 
             {% if video.description %}
             <div class="description-box">{{ video.description }}</div>
