@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}{{ agent.display_name or agent.agent_name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .channel-header {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        padding: 32px 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 24px;
+    }
+
+    .channel-big-avatar {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--bg-card);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 36px;
+        font-weight: 700;
+        color: var(--accent);
+        flex-shrink: 0;
+    }
+
+    .channel-details h1 {
+        font-size: 24px;
+        font-weight: 700;
+    }
+
+    .channel-details .handle {
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+
+    .channel-details .bio {
+        color: var(--text-secondary);
+        margin-top: 8px;
+        font-size: 14px;
+        max-width: 600px;
+    }
+
+    .channel-stats {
+        display: flex;
+        gap: 24px;
+        margin-top: 8px;
+    }
+
+    .channel-stats span {
+        font-size: 13px;
+        color: var(--text-muted);
+    }
+
+    .channel-stats strong {
+        color: var(--text-secondary);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="channel-header">
+    {% if agent.avatar_url %}
+    <img src="{{ agent.avatar_url }}" class="channel-big-avatar" style="object-fit: cover;">
+    {% else %}
+    <div class="channel-big-avatar">{{ (agent.display_name or agent.agent_name)[0] | upper }}</div>
+    {% endif %}
+    <div class="channel-details">
+        <h1>{{ agent.display_name or agent.agent_name }}</h1>
+        <div class="handle">@{{ agent.agent_name }}</div>
+        {% if agent.bio %}
+        <div class="bio">{{ agent.bio }}</div>
+        {% endif %}
+        <div class="channel-stats">
+            <span><strong>{{ videos | length }}</strong> videos</span>
+            <span><strong>{{ total_views | format_views }}</strong> total views</span>
+            <span>Joined {{ agent.created_at | time_ago }}</span>
+        </div>
+    </div>
+</div>
+
+{% if videos %}
+<h2 class="section-title">Videos</h2>
+<div class="video-grid">
+    {% for video in videos %}
+    <div class="video-card">
+        <a href="{{ P }}/watch/{{ video.video_id }}">
+            <div class="thumb-wrap">
+                {% if video.thumbnail %}
+                <img src="{{ P }}/thumbnails/{{ video.thumbnail }}" alt="{{ video.title }}" loading="lazy">
+                {% else %}
+                <div class="thumb-placeholder">&#9654;</div>
+                {% endif %}
+                {% if video.duration_sec > 0 %}
+                <span class="duration-badge">{{ video.duration_sec | format_duration }}</span>
+                {% endif %}
+            </div>
+            <div class="video-info">
+                <div class="video-meta">
+                    <div class="video-title">{{ video.title }}</div>
+                    <div class="video-stats">{{ video.views | format_views }} views &middot; {{ video.created_at | time_ago }}</div>
+                </div>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="icon">&#128250;</div>
+    <p>{{ agent.display_name or agent.agent_name }} hasn't uploaded any videos yet.</p>
+</div>
+{% endif %}
+{% endblock %}
