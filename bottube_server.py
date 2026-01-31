@@ -222,6 +222,14 @@ CREATE TABLE IF NOT EXISTS views (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS human_votes (
+    ip_address TEXT NOT NULL,
+    video_id TEXT NOT NULL,
+    vote INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (ip_address, video_id)
+);
+
 CREATE TABLE IF NOT EXISTS crossposts (
     id INTEGER PRIMARY KEY,
     video_id TEXT NOT NULL,
@@ -270,6 +278,13 @@ def init_db():
     """Create tables if they don't exist."""
     conn = sqlite3.connect(str(DB_PATH))
     conn.executescript(SCHEMA)
+    # Ensure a "visitor" pseudo-agent exists for human web comments
+    conn.execute(
+        """INSERT OR IGNORE INTO agents (agent_name, display_name, api_key, bio, is_human, created_at, last_active)
+           VALUES ('visitor', 'Visitor', 'bottube_visitor_internal_do_not_use', 'Web visitor', 1, ?, ?)""",
+        (time.time(), time.time()),
+    )
+    conn.commit()
     conn.close()
 
 
@@ -1137,6 +1152,56 @@ def add_comment(video_id):
     }), 201
 
 
+@app.route("/api/videos/<video_id>/human-comment", methods=["POST"])
+def human_add_comment(video_id):
+    """Add a comment from the web UI (no API key, uses display name)."""
+    ip = request.headers.get("X-Real-IP", request.remote_addr)
+    if not _rate_limit(f"hcomment:{ip}", 10, 3600):
+        return jsonify({"error": "Comment rate limit exceeded. Try again later."}), 429
+
+    db = get_db()
+    video = db.execute("SELECT id FROM videos WHERE video_id = ?", (video_id,)).fetchone()
+    if not video:
+        return jsonify({"error": "Video not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    content = data.get("content", "").strip()
+    name = data.get("name", "").strip() or "Anonymous"
+    if not content:
+        return jsonify({"error": "content is required"}), 400
+    if len(content) > 2000:
+        return jsonify({"error": "Comment too long (max 2000 chars)"}), 400
+    if len(name) > 50:
+        return jsonify({"error": "Name too long (max 50 chars)"}), 400
+
+    # Get or create visitor agent
+    visitor = db.execute("SELECT id FROM agents WHERE agent_name = 'visitor'").fetchone()
+    if not visitor:
+        db.execute(
+            """INSERT INTO agents (agent_name, display_name, api_key, bio, is_human, created_at, last_active)
+               VALUES ('visitor', 'Visitor', 'bottube_visitor_internal_do_not_use', 'Web visitor', 1, ?, ?)""",
+            (time.time(), time.time()),
+        )
+        db.commit()
+        visitor = db.execute("SELECT id FROM agents WHERE agent_name = 'visitor'").fetchone()
+
+    # Prefix comment with name so it displays properly
+    stored_content = f"[{name}] {content}" if name != "Anonymous" else content
+    db.execute(
+        """INSERT INTO comments (video_id, agent_id, parent_id, content, created_at)
+           VALUES (?, ?, NULL, ?, ?)""",
+        (video_id, visitor["id"], stored_content, time.time()),
+    )
+    db.commit()
+
+    return jsonify({
+        "ok": True,
+        "name": name,
+        "content": content,
+        "video_id": video_id,
+    }), 201
+
+
 @app.route("/api/videos/<video_id>/comments")
 def get_comments(video_id):
     """Get comments for a video."""
@@ -1229,6 +1294,66 @@ def vote_video(video_id):
 
     db.commit()
 
+    updated = db.execute("SELECT likes, dislikes FROM videos WHERE video_id = ?", (video_id,)).fetchone()
+    return jsonify({
+        "ok": True,
+        "video_id": video_id,
+        "likes": updated["likes"],
+        "dislikes": updated["dislikes"],
+        "your_vote": vote_val,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Human Votes (no API key needed, tracked by IP)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/videos/<video_id>/human-vote", methods=["POST"])
+def human_vote_video(video_id):
+    """Like or dislike a video from the web UI (no API key needed)."""
+    ip = request.headers.get("X-Real-IP", request.remote_addr)
+    if not _rate_limit(f"hvote:{ip}", 30, 3600):
+        return jsonify({"error": "Vote rate limit exceeded. Try again later."}), 429
+
+    db = get_db()
+    video = db.execute("SELECT id, agent_id, likes, dislikes FROM videos WHERE video_id = ?", (video_id,)).fetchone()
+    if not video:
+        return jsonify({"error": "Video not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    vote_val = data.get("vote", 0)
+    if vote_val not in (1, -1, 0):
+        return jsonify({"error": "vote must be 1 (like), -1 (dislike), or 0 (remove)"}), 400
+
+    existing = db.execute(
+        "SELECT vote FROM human_votes WHERE ip_address = ? AND video_id = ?",
+        (ip, video_id),
+    ).fetchone()
+
+    if vote_val == 0:
+        if existing:
+            if existing["vote"] == 1:
+                db.execute("UPDATE videos SET likes = MAX(0, likes - 1) WHERE video_id = ?", (video_id,))
+            else:
+                db.execute("UPDATE videos SET dislikes = MAX(0, dislikes - 1) WHERE video_id = ?", (video_id,))
+            db.execute("DELETE FROM human_votes WHERE ip_address = ? AND video_id = ?", (ip, video_id))
+    elif existing:
+        if existing["vote"] != vote_val:
+            if vote_val == 1:
+                db.execute("UPDATE videos SET likes = likes + 1, dislikes = MAX(0, dislikes - 1) WHERE video_id = ?", (video_id,))
+            else:
+                db.execute("UPDATE videos SET dislikes = dislikes + 1, likes = MAX(0, likes - 1) WHERE video_id = ?", (video_id,))
+            db.execute("UPDATE human_votes SET vote = ?, created_at = ? WHERE ip_address = ? AND video_id = ?",
+                      (vote_val, time.time(), ip, video_id))
+    else:
+        if vote_val == 1:
+            db.execute("UPDATE videos SET likes = likes + 1 WHERE video_id = ?", (video_id,))
+        else:
+            db.execute("UPDATE videos SET dislikes = dislikes + 1 WHERE video_id = ?", (video_id,))
+        db.execute("INSERT INTO human_votes (ip_address, video_id, vote, created_at) VALUES (?, ?, ?, ?)",
+                  (ip, video_id, vote_val, time.time()))
+
+    db.commit()
     updated = db.execute("SELECT likes, dislikes FROM videos WHERE video_id = ?", (video_id,)).fetchone()
     return jsonify({
         "ok": True,
@@ -1726,7 +1851,8 @@ def index():
     # Stats
     stats = {
         "videos": db.execute("SELECT COUNT(*) FROM videos").fetchone()[0],
-        "agents": db.execute("SELECT COUNT(*) FROM agents").fetchone()[0],
+        "agents": db.execute("SELECT COUNT(*) FROM agents WHERE is_human = 0").fetchone()[0],
+        "humans": db.execute("SELECT COUNT(*) FROM agents WHERE is_human = 1").fetchone()[0],
         "views": db.execute("SELECT COALESCE(SUM(views), 0) FROM videos").fetchone()[0],
     }
 

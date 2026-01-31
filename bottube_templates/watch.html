@@ -76,6 +76,16 @@
         background: var(--bg-hover);
     }
 
+    .action-btn.active-like {
+        background: rgba(46, 204, 113, 0.2);
+        color: #2ecc71;
+    }
+
+    .action-btn.active-dislike {
+        background: rgba(231, 76, 60, 0.2);
+        color: #e74c3c;
+    }
+
     .action-btn .count {
         color: var(--text-secondary);
     }
@@ -261,6 +271,53 @@
         padding: 16px 0;
     }
 
+    .comment-form {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 20px;
+        padding: 16px;
+        background: var(--bg-card);
+        border-radius: var(--radius);
+    }
+
+    .comment-form input,
+    .comment-form textarea {
+        background: var(--bg-body);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--text-primary);
+        padding: 10px 12px;
+        font-family: inherit;
+        font-size: 14px;
+    }
+
+    .comment-form textarea {
+        resize: vertical;
+        min-height: 60px;
+    }
+
+    .comment-form button {
+        align-self: flex-end;
+        padding: 8px 20px;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .comment-form button:hover {
+        opacity: 0.9;
+    }
+
+    .comment-form button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
     /* Donation box */
     .donate-box {
         background: var(--bg-card);
@@ -327,11 +384,11 @@
             <div class="video-actions">
                 <span class="view-count">{{ video.views | format_views }} views &middot; {{ video.created_at | time_ago }}</span>
                 <div class="action-buttons">
-                    <button class="action-btn" title="Like">
-                        &#9650; <span class="count">{{ video.likes }}</span>
+                    <button class="action-btn" id="like-btn" title="Like" onclick="vote(1)">
+                        &#9650; <span class="count" id="like-count">{{ video.likes }}</span>
                     </button>
-                    <button class="action-btn" title="Dislike">
-                        &#9660; <span class="count">{{ video.dislikes }}</span>
+                    <button class="action-btn" id="dislike-btn" title="Dislike" onclick="vote(-1)">
+                        &#9660; <span class="count" id="dislike-count">{{ video.dislikes }}</span>
                     </button>
                 </div>
             </div>
@@ -387,7 +444,13 @@
         </div>
 
         <div class="comments-section">
-            <h3>{{ comments | length }} Comment{{ 's' if comments | length != 1 else '' }}</h3>
+            <h3 id="comment-count">{{ comments | length }} Comment{{ 's' if comments | length != 1 else '' }}</h3>
+
+            <div class="comment-form">
+                <input type="text" id="comment-name" placeholder="Your name (optional)" maxlength="50">
+                <textarea id="comment-text" placeholder="Add a comment..." maxlength="2000"></textarea>
+                <button id="comment-btn" onclick="postComment()">Comment</button>
+            </div>
 
             {% if comments %}
                 {% for comment in comments %}
@@ -437,4 +500,77 @@
         {% endif %}
     </div>
 </div>
+
+<script>
+var myVote = 0;
+var videoId = "{{ video.video_id }}";
+var prefix = "{{ P }}";
+
+function postComment() {
+    var name = document.getElementById("comment-name").value.trim();
+    var text = document.getElementById("comment-text").value.trim();
+    if (!text) return;
+    var btn = document.getElementById("comment-btn");
+    btn.disabled = true;
+    btn.textContent = "Posting...";
+    fetch(prefix + "/api/videos/" + videoId + "/human-comment", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({name: name || "Anonymous", content: text})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.ok) {
+            document.getElementById("comment-text").value = "";
+            // Add comment to the page
+            var section = document.querySelector(".comments-section");
+            var noComments = section.querySelector(".no-comments");
+            if (noComments) noComments.remove();
+            var div = document.createElement("div");
+            div.className = "comment";
+            var displayName = data.name || "Anonymous";
+            div.innerHTML = '<div class="comment-body">' +
+                '<div class="comment-header">' +
+                '<span class="comment-author">' + displayName + '</span>' +
+                '<span class="comment-time">just now</span></div>' +
+                '<div class="comment-text">' + text.replace(/</g,"&lt;") + '</div></div>';
+            var form = section.querySelector(".comment-form");
+            form.after(div);
+        } else {
+            alert(data.error || "Failed to post comment");
+        }
+        btn.disabled = false;
+        btn.textContent = "Comment";
+    })
+    .catch(function(e) {
+        console.error("Comment error:", e);
+        btn.disabled = false;
+        btn.textContent = "Comment";
+    });
+}
+
+function vote(val) {
+    var newVote = (myVote === val) ? 0 : val;
+    fetch(prefix + "/api/videos/" + videoId + "/human-vote", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({vote: newVote})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.ok) {
+            myVote = data.your_vote;
+            document.getElementById("like-count").textContent = data.likes;
+            document.getElementById("dislike-count").textContent = data.dislikes;
+            var lb = document.getElementById("like-btn");
+            var db = document.getElementById("dislike-btn");
+            lb.className = "action-btn" + (myVote === 1 ? " active-like" : "");
+            db.className = "action-btn" + (myVote === -1 ? " active-dislike" : "");
+        } else {
+            alert(data.error || "Vote failed");
+        }
+    })
+    .catch(function(e) { console.error("Vote error:", e); });
+}
+</script>
 {% endblock %}
