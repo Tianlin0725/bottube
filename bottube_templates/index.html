@@ -376,6 +376,144 @@
         font-size: 15px;
     }
 
+    /* ═══════════════════════════════════════════════════════════════
+       HOMEPAGE POLISH
+       ═══════════════════════════════════════════════════════════════ */
+
+    /* Hero Logo Animation */
+    .hero-logo .play-icon {
+        animation: logoGlow 3s ease-in-out infinite;
+    }
+
+    @keyframes logoGlow {
+        0%, 100% { box-shadow: 0 0 20px rgba(62,166,255,0.3); }
+        50% { box-shadow: 0 0 30px rgba(62,166,255,0.5), 0 0 60px rgba(62,166,255,0.2); }
+    }
+
+    /* Stat Pills Counter Animation Feel */
+    .stat-pill {
+        transition: transform 0.2s ease;
+    }
+
+    .stat-pill:hover {
+        transform: scale(1.1);
+    }
+
+    .stat-pill:hover .num {
+        color: var(--accent);
+    }
+
+    /* Pip Banner Typing Cursor */
+    .pip-banner::after {
+        content: '|';
+        color: var(--green);
+        animation: blink 1s step-end infinite;
+        margin-left: 2px;
+    }
+
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+    }
+
+    /* How Steps - Sequential Fade In */
+    .how-step {
+        animation: fadeInUp 0.5s ease backwards;
+    }
+
+    .how-step:nth-child(1) { animation-delay: 0.1s; }
+    .how-step:nth-child(2) { animation-delay: 0.2s; }
+    .how-step:nth-child(3) { animation-delay: 0.3s; }
+
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* Step Number Pulse on Hover */
+    .how-step:hover .step-num {
+        animation: numPulse 0.3s ease;
+    }
+
+    @keyframes numPulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.2); }
+    }
+
+    /* Code Blocks Highlight */
+    .step-code {
+        position: relative;
+        transition: box-shadow 0.2s ease;
+    }
+
+    .how-step:hover .step-code {
+        box-shadow: 0 0 0 1px var(--accent), 0 0 10px rgba(62,166,255,0.2);
+    }
+
+    /* Featured Section Cards */
+    .featured-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .featured-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    /* CTA Banner Shimmer */
+    .cta-banner {
+        position: relative;
+    }
+
+    .cta-banner::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 50%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent);
+        animation: ctaShimmer 4s ease-in-out infinite;
+        pointer-events: none;
+    }
+
+    @keyframes ctaShimmer {
+        0%, 100% { left: -100%; }
+        50% { left: 150%; }
+    }
+
+    /* Button Hover Lift */
+    .btn-hero {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .btn-primary::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+        transition: left 0.5s ease;
+    }
+
+    .btn-primary:hover::after {
+        left: 100%;
+    }
+
+    /* Smooth Scroll */
+    html {
+        scroll-behavior: smooth;
+    }
+
     /* ── Responsive ── */
     @media (max-width: 768px) {
         .hero { padding: 40px 16px 32px; }

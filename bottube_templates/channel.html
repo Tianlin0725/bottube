@@ -132,6 +132,206 @@
         gap: 6px;
         flex-shrink: 0;
     }
+
+    /* ═══════════════════════════════════════════════════════════════
+       CHANNEL PAGE POLISH
+       ═══════════════════════════════════════════════════════════════ */
+
+    /* Avatar Hover Glow */
+    .channel-big-avatar {
+        transition: box-shadow 0.3s ease, transform 0.3s ease;
+        border: 3px solid transparent;
+    }
+
+    .channel-header:hover .channel-big-avatar {
+        box-shadow: 0 0 0 4px rgba(240, 185, 11, 0.3), 0 8px 24px rgba(0, 0, 0, 0.3);
+        transform: scale(1.05);
+    }
+
+    /* Name Hover Effect */
+    .channel-details h1 {
+        transition: color 0.2s ease;
+    }
+
+    .channel-details h1:hover {
+        color: var(--accent);
+    }
+
+    /* Stats Hover Highlight */
+    .channel-stats span {
+        padding: 4px 8px;
+        border-radius: 6px;
+        transition: background 0.15s ease;
+    }
+
+    .channel-stats span:hover {
+        background: var(--bg-hover);
+    }
+
+    .channel-stats span:hover strong {
+        color: var(--accent);
+    }
+
+    /* Subscribe Button Pulse */
+    .subscribe-btn.not-following {
+        animation: subtlePulse 2s ease-in-out infinite;
+    }
+
+    .subscribe-btn:hover {
+        animation: none;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+    }
+
+    @keyframes subtlePulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
+        50% { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
+    }
+
+    /* Video Card Enhancements */
+    .video-card {
+        transition: transform 0.2s ease;
+    }
+
+    .video-card:hover {
+        transform: translateY(-4px);
+    }
+
+    .thumb-wrap {
+        position: relative;
+        overflow: hidden;
+    }
+
+    /* Play Overlay */
+    .thumb-wrap::after {
+        content: '▶';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0.8);
+        width: 48px;
+        height: 48px;
+        background: rgba(0, 0, 0, 0.75);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        color: #fff;
+        opacity: 0;
+        transition: all 0.2s ease;
+        pointer-events: none;
+    }
+
+    .video-card:hover .thumb-wrap::after {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    .thumb-wrap img {
+        transition: transform 0.3s ease;
+    }
+
+    .video-card:hover .thumb-wrap img {
+        transform: scale(1.05);
+    }
+
+    /* Section Title Styling */
+    .section-title {
+        position: relative;
+        display: inline-block;
+        padding-bottom: 8px;
+    }
+
+    .section-title::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 40px;
+        height: 3px;
+        background: var(--accent);
+        border-radius: 2px;
+    }
+
+    /* Empty State Polish */
+    .empty-state {
+        text-align: center;
+        padding: 48px 24px;
+        background: var(--bg-card);
+        border-radius: var(--radius);
+        border: 1px dashed var(--border);
+    }
+
+    .empty-state .icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+
+    /* Badge Shine Effect */
+    .badge-ai, .badge-human {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .badge-ai::after, .badge-human::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+        animation: badgeShine 3s ease-in-out infinite;
+    }
+
+    @keyframes badgeShine {
+        0%, 100% { left: -100%; }
+        50% { left: 100%; }
+    }
+
+    /* Playlist Card Gradient */
+    .video-card a[href*="playlist"] .thumb-wrap {
+        position: relative;
+    }
+
+    .video-card a[href*="playlist"] .thumb-wrap::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(240,185,11,0.1), transparent);
+        z-index: 1;
+        pointer-events: none;
+    }
+
+    /* Mobile Responsive */
+    @media (max-width: 600px) {
+        .channel-header {
+            flex-direction: column;
+            text-align: center;
+            gap: 16px;
+        }
+
+        .channel-header-right {
+            margin-left: 0;
+            width: 100%;
+        }
+
+        .subscribe-btn {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .channel-stats {
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .channel-details .bio {
+            max-width: 100%;
+        }
+    }
 </style>
 {% endblock %}
 
