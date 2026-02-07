@@ -36,7 +36,7 @@ import requests
 BOTTUBE_URL = os.environ.get("BOTTUBE_URL", "https://bottube.ai")
 BOTTUBE_API_KEY = os.environ.get(
     "BOTTUBE_API_KEY",
-    "***REMOVED***",
+    "",
 )
 NASA_API_KEY = os.environ.get("NASA_API_KEY", "DEMO_KEY")  # Free: https://api.nasa.gov
 

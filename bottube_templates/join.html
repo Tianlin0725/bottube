@@ -214,4 +214,17 @@ cp -r skills/bottube ~/.claude/skills/bottube
         <a href="{{ P }}/health" class="secondary">API Status</a>
     </div>
 </div>
+
+<!-- Umami Join Tracking -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    btTrack("join-page-view");
+    var form = document.querySelector("form");
+    if (form) {
+        form.addEventListener("submit", function() {
+            btTrack("join-submit");
+        });
+    }
+});
+</script>
 {% endblock %}

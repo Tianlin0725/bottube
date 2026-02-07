@@ -2,170 +2,9 @@
 
 {% block title %}Search: {{ query }}{% endblock %}
 
-{% block extra_css %}
-<style>
-    /* ═══════════════════════════════════════════════════════════════
-       SEARCH PAGE POLISH
-       ═══════════════════════════════════════════════════════════════ */
-
-    /* Search Header */
-    .search-header {
-        margin-bottom: 24px;
-        padding-bottom: 16px;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .search-header .section-title {
-        position: relative;
-        display: inline-block;
-        margin: 0;
-    }
-
-    .search-header .query-text {
-        color: var(--accent);
-    }
-
-    .search-header .result-count {
-        font-size: 14px;
-        color: var(--text-muted);
-        margin-top: 8px;
-    }
-
-    /* Video Card Enhancements */
-    .video-card {
-        transition: transform 0.2s ease;
-    }
-
-    .video-card:hover {
-        transform: translateY(-4px);
-    }
-
-    .thumb-wrap {
-        position: relative;
-        overflow: hidden;
-    }
-
-    /* Play Overlay */
-    .thumb-wrap::after {
-        content: '▶';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%) scale(0.8);
-        width: 48px;
-        height: 48px;
-        background: rgba(0, 0, 0, 0.75);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-        color: #fff;
-        opacity: 0;
-        transition: all 0.2s ease;
-        pointer-events: none;
-    }
-
-    .video-card:hover .thumb-wrap::after {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(1);
-    }
-
-    .thumb-wrap img {
-        transition: transform 0.3s ease;
-    }
-
-    .video-card:hover .thumb-wrap img {
-        transform: scale(1.05);
-    }
-
-    /* Highlight Search Match (JS will add .highlight class) */
-    .video-title .highlight {
-        background: rgba(240, 185, 11, 0.3);
-        padding: 0 2px;
-        border-radius: 2px;
-    }
-
-    /* Empty State */
-    .empty-state {
-        text-align: center;
-        padding: 64px 24px;
-        background: var(--bg-card);
-        border-radius: var(--radius);
-        border: 1px dashed var(--border);
-        margin-top: 24px;
-    }
-
-    .empty-state .icon {
-        font-size: 64px;
-        margin-bottom: 16px;
-        opacity: 0.5;
-        animation: searchBounce 2s ease-in-out infinite;
-    }
-
-    @keyframes searchBounce {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-8px); }
-    }
-
-    .empty-state p {
-        color: var(--text-secondary);
-        font-size: 16px;
-    }
-
-    .empty-state .suggestion {
-        margin-top: 16px;
-        font-size: 14px;
-        color: var(--text-muted);
-    }
-
-    .empty-state .suggestion a {
-        color: var(--accent);
-    }
-
-    /* Results Animation */
-    .video-card {
-        animation: fadeInUp 0.3s ease backwards;
-    }
-
-    .video-card:nth-child(1) { animation-delay: 0.05s; }
-    .video-card:nth-child(2) { animation-delay: 0.1s; }
-    .video-card:nth-child(3) { animation-delay: 0.15s; }
-    .video-card:nth-child(4) { animation-delay: 0.2s; }
-    .video-card:nth-child(5) { animation-delay: 0.25s; }
-    .video-card:nth-child(6) { animation-delay: 0.3s; }
-
-    @keyframes fadeInUp {
-        from {
-            opacity: 0;
-            transform: translateY(16px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    /* Mobile */
-    @media (max-width: 600px) {
-        .empty-state {
-            padding: 48px 16px;
-        }
-        .empty-state .icon {
-            font-size: 48px;
-        }
-    }
-</style>
-{% endblock %}
-
 {% block content %}
 {% if query %}
-<div class="search-header">
-    <h2 class="section-title">Search results for "<span class="query-text">{{ query }}</span>"</h2>
-    {% if videos %}
-    <div class="result-count">{{ videos | length }} video{{ 's' if videos | length != 1 else '' }} found</div>
-    {% endif %}
-</div>
+<h2 class="section-title">Search results for "{{ query }}"</h2>
 
 {% if videos %}
 <div class="video-grid">
@@ -198,7 +37,6 @@
 <div class="empty-state">
     <div class="icon">&#128269;</div>
     <p>No videos found for "{{ query }}"</p>
-    <div class="suggestion">Try <a href="{{ P }}/trending">trending videos</a> or <a href="{{ P }}/categories">browse categories</a></div>
 </div>
 {% endif %}
 
@@ -208,4 +46,12 @@
     <p>Enter a search term to find videos.</p>
 </div>
 {% endif %}
+
+<!-- Umami Search Tracking -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    var params = new URLSearchParams(window.location.search);
+    btTrack("search-results", {query: params.get("q") || ""});
+});
+</script>
 {% endblock %}

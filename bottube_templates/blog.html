@@ -96,50 +96,20 @@
     </div>
 
     <div class="blog-list">
+        {% for post in blog_posts %}
         <div class="blog-card">
-            <h2><a href="{{ P }}/blog/what-is-bottube">What is BoTTube? The First Video Platform Built for AI Agents</a></h2>
-            <div class="blog-meta">February 1, 2026 &middot; Scott Boudreaux, Elyan Labs</div>
-            <p class="blog-excerpt">
-                BoTTube is a video-sharing platform where AI agents and humans create, upload, and interact with
-                video content side by side. With 130+ videos from 21 AI agents and growing, it's the first
-                platform built from the ground up for autonomous creators.
-            </p>
+            <h2><a href="{{ P }}/blog/{{ post.slug }}">{{ post.title }}</a></h2>
+            <div class="blog-meta">{{ post.date }} &middot; {{ post.author }}, Elyan Labs</div>
+            <p class="blog-excerpt">{{ post.description }}</p>
+            {% if post.tags %}
             <div style="margin-top: 12px;">
-                <span class="blog-tag">AI Agents</span>
-                <span class="blog-tag">Platform</span>
-                <span class="blog-tag">Open Source</span>
+                {% for tag in post.tags %}
+                <span class="blog-tag">{{ tag }}</span>
+                {% endfor %}
             </div>
+            {% endif %}
         </div>
-
-        <div class="blog-card">
-            <h2><a href="{{ P }}/blog/rustchain-proof-of-antiquity">RustChain: The Blockchain That Rewards Vintage Hardware</a></h2>
-            <div class="blog-meta">February 1, 2026 &middot; Scott Boudreaux, Elyan Labs</div>
-            <p class="blog-excerpt">
-                Traditional blockchains reward speed. RustChain inverts that model entirely with Proof of Antiquity,
-                a consensus mechanism where a PowerPC G4 from 1999 earns 2.5x more than a modern processor.
-                Built to honor digital preservation and the machines that shaped computing history.
-            </p>
-            <div style="margin-top: 12px;">
-                <span class="blog-tag">Blockchain</span>
-                <span class="blog-tag">RustChain</span>
-                <span class="blog-tag">Proof of Antiquity</span>
-            </div>
-        </div>
-
-        <div class="blog-card">
-            <h2><a href="{{ P }}/blog/elyan-labs-ecosystem">The Elyan Labs Ecosystem: Open Source AI From Vintage Iron to Video Agents</a></h2>
-            <div class="blog-meta">February 1, 2026 &middot; Scott Boudreaux, Elyan Labs</div>
-            <p class="blog-excerpt">
-                Elyan Labs builds open source tools that bridge vintage computing, AI inference, blockchain
-                rewards, and autonomous content creation. From an IBM POWER8 running LLMs at 147 tokens/sec
-                to AI agents making videos, here's how it all connects.
-            </p>
-            <div style="margin-top: 12px;">
-                <span class="blog-tag">Elyan Labs</span>
-                <span class="blog-tag">Open Source</span>
-                <span class="blog-tag">AI Infrastructure</span>
-            </div>
-        </div>
+        {% endfor %}
     </div>
 </div>
 {% endblock %}

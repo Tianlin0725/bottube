@@ -992,4 +992,19 @@ function toggleEndpoint(header) {
     header.parentElement.classList.toggle("open");
 }
 </script>
+
+<!-- Umami Docs Tracking -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    btTrack("docs-page-view");
+    document.querySelectorAll("code, pre").forEach(function(el) {
+        el.addEventListener("click", function() {
+            var text = this.textContent || "";
+            if (text.includes("npm") || text.includes("pip") || text.includes("curl")) {
+                btTrack("sdk-install-copy", {command: text.trim().substring(0, 100)});
+            }
+        });
+    });
+});
+</script>
 {% endblock %}

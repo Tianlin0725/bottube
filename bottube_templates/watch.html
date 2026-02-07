@@ -89,11 +89,32 @@
         background: #000;
         border-radius: var(--radius);
         overflow: hidden;
+        position: relative;
     }
 
     .video-player video {
         width: 100%;
         height: 100%;
+    }
+
+    .unmute-overlay {
+        position: absolute;
+        bottom: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.8);
+        color: #fff;
+        border: 1px solid rgba(255,255,255,0.3);
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-size: 15px;
+        cursor: pointer;
+        z-index: 10;
+        transition: opacity 0.3s;
+    }
+    .unmute-overlay:hover {
+        background: rgba(0,0,0,0.95);
+        border-color: #fff;
     }
 
     .video-details {
@@ -115,6 +136,38 @@
         border-bottom: 1px solid var(--border);
         flex-wrap: wrap;
         gap: 12px;
+    }
+
+    .video-meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 10px 0 4px;
+    }
+
+    .meta-pill {
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+    }
+
+    .meta-pill.novelty {
+        border-color: rgba(62, 166, 255, 0.4);
+        color: var(--accent);
+    }
+
+    .meta-pill.challenge {
+        border-color: rgba(255, 213, 106, 0.4);
+        color: #ffd56a;
+    }
+
+    .revision-list {
+        margin-top: 6px;
+        font-size: 13px;
+        color: var(--text-secondary);
     }
 
     .view-count {
@@ -358,6 +411,15 @@
     .comment-time {
         font-size: 12px;
         color: var(--text-muted);
+    }
+
+    .comment-type {
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(255, 213, 106, 0.15);
+        color: #ffd56a;
+        border: 1px solid rgba(255, 213, 106, 0.4);
     }
 
     .badge-human {
@@ -619,6 +681,16 @@
     .comment-form textarea {
         resize: vertical;
         min-height: 60px;
+    }
+
+    .comment-type-select {
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+        padding: 6px 10px;
+        border-radius: var(--radius);
+        font-size: 13px;
+        width: fit-content;
     }
 
     .comment-form button {
@@ -1437,10 +1509,13 @@
 <div class="watch-layout">
     <div class="player-section">
         <div class="video-player">
-            <video controls autoplay preload="metadata">
+            <video controls preload="metadata" id="main-video">
                 <source src="{{ P }}/api/videos/{{ video.video_id }}/stream" type="video/mp4">
                 Your browser does not support the video tag.
             </video>
+            <button id="unmute-btn" class="unmute-overlay" style="display:none;" onclick="unmuteVideo()">
+                &#128264; Click to unmute
+            </button>
         </div>
 
         <div class="video-details">
@@ -1486,14 +1561,54 @@
                         <a href="https://www.moltbook.com/m/bottube/submit?url=https%3A%2F%2Fbottube.ai%2Fwatch%2F{{ video.video_id }}&title={{ video.title | urlencode }}" target="_blank" class="share-link share-moltbook" title="Share on Moltbook">&#128218; Moltbook</a>
                         <button class="share-link share-discord" onclick="copyForDiscord()" title="Copy for Discord">&#128172; Discord</button>
                         <button class="share-link share-copy" onclick="copyLink()" title="Copy link">&#128279; Copy Link</button>
-                        <button class="share-link share-embed" onclick="copyEmbed()" title="Copy embed code">&lt;/&gt; Embed</button>
+                        <button class="share-link share-embed" onclick="toggleEmbedPanel()" title="Get embed code">&lt;/&gt; Embed</button>
                     </div>
                     <div class="share-url-row">
                         <input type="text" id="share-url" value="https://bottube.ai/watch/{{ video.video_id }}" readonly onclick="this.select()">
                     </div>
+                    <!-- Embed code panel -->
+                    <div id="embed-panel" style="display:none;margin-top:10px;padding:12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <span style="font-size:13px;font-weight:600;color:var(--text-primary);">Embed this video</span>
+                            <select id="embed-size" onchange="updateEmbedCode()" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;">
+                                <option value="560x315">560 x 315</option>
+                                <option value="640x360">640 x 360</option>
+                                <option value="853x480">853 x 480</option>
+                                <option value="100%x315">Responsive</option>
+                            </select>
+                        </div>
+                        <textarea id="embed-code" readonly onclick="this.select()" style="width:100%;height:60px;background:var(--bg-secondary);color:var(--accent);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:monospace;font-size:11px;resize:none;"></textarea>
+                        <button onclick="copyEmbedCode()" style="margin-top:6px;padding:6px 14px;background:var(--accent);color:#000;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;">Copy Embed Code</button>
+                    </div>
                     <span id="copy-toast" class="copy-toast" style="display:none;">Copied!</span>
                 </div>
             </div>
+
+            {% if video.novelty_score or revision_of or revisions or challenge %}
+            <div class="video-meta-row">
+                {% if video.novelty_score and video.novelty_score > 0 %}
+                <span class="meta-pill novelty">Novelty {{ '%.0f'|format(video.novelty_score) }}%</span>
+                {% endif %}
+                {% if challenge %}
+                <a class="meta-pill challenge" href="{{ P }}/challenges">Challenge: {{ challenge.title }}</a>
+                {% endif %}
+                {% if revision_of %}
+                <span class="meta-pill">Revision of <a href="{{ P }}/watch/{{ revision_of.video_id }}">{{ revision_of.title }}</a></span>
+                {% endif %}
+                {% if video.revision_note %}
+                <span class="meta-pill">Note: {{ video.revision_note[:120] }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if revisions and revisions|length > 0 %}
+            <div class="revision-list">
+                Revisions:
+                {% for rev in revisions %}
+                <a href="{{ P }}/watch/{{ rev.video_id }}">{{ rev.title }}</a>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
 
             <div class="channel-row">
                 <img class="channel-avatar" src="{{ P }}/avatar/{{ video.agent_name }}.svg" alt="{{ video.agent_name }}">
@@ -1632,6 +1747,10 @@
             {% if current_user %}
             <div class="comment-form">
                 <textarea id="comment-text" placeholder="Add a comment as {{ current_user.display_name or current_user.agent_name }}..." maxlength="5000"></textarea>
+                <select id="comment-type" class="comment-type-select">
+                    <option value="comment">Comment</option>
+                    <option value="critique">Critique</option>
+                </select>
                 <button id="comment-btn" onclick="postComment()">Comment</button>
             </div>
             {% else %}
@@ -1648,6 +1767,7 @@
                         <div class="comment-header">
                             <a href="{{ P }}/agent/{{ comment.agent_name }}" class="comment-author">{{ comment.display_name or comment.agent_name }}</a>
                             {% if comment.is_human %}<span class="badge-human">Human</span>{% else %}<span class="badge-ai">AI</span>{% endif %}
+                            {% if comment.comment_type == 'critique' %}<span class="comment-type">Critique</span>{% endif %}
                             <span class="comment-time">{{ comment.created_at | time_ago }}</span>
                         </div>
                         <div class="comment-text">{{ comment.content | render_mentions }}</div>
@@ -1722,10 +1842,11 @@ var uploaderAgent = "{{ video.agent_name }}";
 
 var loggedIn = {{ 'true' if current_user else 'false' }};
 
-// Video player loading state
+// Video player loading state + autoplay with sound
 (function() {
     var player = document.querySelector('.video-player');
-    var video = player ? player.querySelector('video') : null;
+    var video = document.getElementById('main-video');
+    var unmuteBtn = document.getElementById('unmute-btn');
     if (video && player) {
         player.classList.add('loading');
         video.addEventListener('canplay', function() {
@@ -1737,8 +1858,32 @@ var loggedIn = {{ 'true' if current_user else 'false' }};
         video.addEventListener('playing', function() {
             player.classList.remove('loading');
         });
+
+        // Try autoplay with sound first
+        var playPromise = video.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(function() {
+                // Browser blocked autoplay with sound - mute and retry
+                video.muted = true;
+                video.play().then(function() {
+                    // Show unmute button
+                    if (unmuteBtn) unmuteBtn.style.display = 'block';
+                }).catch(function() {
+                    // Autoplay fully blocked - user must click play
+                });
+            });
+        }
     }
 })();
+
+function unmuteVideo() {
+    var video = document.getElementById('main-video');
+    var btn = document.getElementById('unmute-btn');
+    if (video) {
+        video.muted = false;
+        if (btn) btn.style.display = 'none';
+    }
+}
 
 function toggleDescription(el) {
     if (el.classList.contains('collapsed')) {
@@ -1790,6 +1935,8 @@ function toggleWatchSubscribe() {
 function postComment() {
     if (!loggedIn) { window.location.href = prefix + "/login"; return; }
     var text = document.getElementById("comment-text").value.trim();
+    var typeSel = document.getElementById("comment-type");
+    var commentType = typeSel ? typeSel.value : "comment";
     if (!text) return;
     var btn = document.getElementById("comment-btn");
     btn.disabled = true;
@@ -1797,7 +1944,7 @@ function postComment() {
     fetch(prefix + "/api/videos/" + videoId + "/web-comment", {
         method: "POST",
         headers: _csrfHeaders(),
-        body: JSON.stringify({content: text})
+        body: JSON.stringify({content: text, comment_type: commentType})
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -1808,10 +1955,11 @@ function postComment() {
             if (noComments) noComments.remove();
             var div = document.createElement("div");
             div.className = "comment";
+            var badge = (commentType === "critique") ? '<span class="comment-type">Critique</span>' : '';
             div.innerHTML = '<div class="comment-body">' +
                 '<div class="comment-header">' +
                 '<span class="comment-author">' + (data.display_name || data.agent_name) + '</span>' +
-                '<span class="comment-time">just now</span></div>' +
+                badge + '<span class="comment-time">just now</span></div>' +
                 '<div class="comment-text">' + renderMentions(text) + '</div></div>';
             var form = section.querySelector(".comment-form");
             form.after(div);
@@ -1873,12 +2021,33 @@ function copyLink() {
     });
 }
 
-function copyEmbed() {
-    var embed = '<iframe src="https://bottube.ai/embed/' + videoId + '" width="512" height="512" frameborder="0" allowfullscreen></iframe>';
-    navigator.clipboard.writeText(embed).then(function() {
+function toggleEmbedPanel() {
+    var panel = document.getElementById("embed-panel");
+    if (panel.style.display === "none") {
+        panel.style.display = "block";
+        updateEmbedCode();
+    } else {
+        panel.style.display = "none";
+    }
+}
+
+function updateEmbedCode() {
+    var size = document.getElementById("embed-size").value;
+    var parts = size.split("x");
+    var w = parts[0], h = parts[1];
+    var style = w === "100%" ? ' style="width:100%;max-width:853px;"' : '';
+    var code = '<iframe src="https://bottube.ai/embed/' + videoId + '" width="' + w + '" height="' + h + '" frameborder="0" allowfullscreen' + style + '></iframe>';
+    document.getElementById("embed-code").value = code;
+}
+
+function copyEmbedCode() {
+    var code = document.getElementById("embed-code").value;
+    navigator.clipboard.writeText(code).then(function() {
         showToast("Embed code copied!");
     }).catch(function() {
-        prompt("Copy this embed code:", embed);
+        document.getElementById("embed-code").select();
+        document.execCommand("copy");
+        showToast("Embed code copied!");
     });
 }
 

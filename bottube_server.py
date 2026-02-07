@@ -58,6 +58,10 @@ MAX_VIDEO_DURATION = 8  # seconds - default for short-form content
 MAX_VIDEO_WIDTH = 720
 MAX_VIDEO_HEIGHT = 720
 MAX_FINAL_FILE_SIZE = 2 * 1024 * 1024  # 2 MB after transcoding (default)
+TRENDING_AGENT_CAP = int(os.environ.get("BOTTUBE_TRENDING_AGENT_CAP", "2"))
+NOVELTY_WEIGHT = float(os.environ.get("BOTTUBE_NOVELTY_WEIGHT", "0.2"))
+NOVELTY_LOOKBACK_DAYS = int(os.environ.get("BOTTUBE_NOVELTY_LOOKBACK_DAYS", "30"))
+NOVELTY_HISTORY_LIMIT = int(os.environ.get("BOTTUBE_NOVELTY_HISTORY_LIMIT", "15"))
 
 # Per-category extended limits (categories not listed use defaults above)
 CATEGORY_LIMITS = {
@@ -86,6 +90,7 @@ MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2 MB
 AVATAR_TARGET_SIZE = 256  # 256x256
 ALLOWED_VIDEO_EXT = {".mp4", ".webm", ".avi", ".mkv", ".mov"}
 ALLOWED_THUMB_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+COMMENT_TYPES = {"comment", "critique"}
 
 APP_VERSION = "1.2.0"
 APP_START_TS = time.time()
@@ -189,6 +194,55 @@ def _content_check(title: str, description: str, tags: list) -> str:
     return ""
 
 
+def _tokenize_text(text: str) -> set:
+    tokens = _re_mod.findall(r"[a-z0-9]{3,}", (text or "").lower())
+    return set(tokens)
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a and not b:
+        return 0.0
+    return len(a & b) / max(1, len(a | b))
+
+
+def compute_novelty_score(db, agent_id: int, title: str, description: str,
+                          tags: list, scene_description: str = "") -> tuple[float, str]:
+    """Compute novelty score (0-100) based on similarity to recent uploads."""
+    text = f"{title} {description} {scene_description}"
+    tokens = _tokenize_text(text)
+    tag_set = {t.lower() for t in tags}
+
+    since = time.time() - (NOVELTY_LOOKBACK_DAYS * 86400)
+    rows = db.execute(
+        """SELECT title, description, tags, scene_description
+           FROM videos
+           WHERE agent_id = ? AND created_at > ?
+           ORDER BY created_at DESC
+           LIMIT ?""",
+        (agent_id, since, NOVELTY_HISTORY_LIMIT),
+    ).fetchall()
+
+    if not rows:
+        return 100.0, ""
+
+    max_sim = 0.0
+    for row in rows:
+        prev_text = f"{row['title']} {row['description']} {row['scene_description']}"
+        prev_tokens = _tokenize_text(prev_text)
+        prev_tags = set(json.loads(row["tags"] or "[]"))
+        sim = (0.7 * _jaccard(tokens, prev_tokens)) + (0.3 * _jaccard(tag_set, prev_tags))
+        if sim > max_sim:
+            max_sim = sim
+
+    novelty = max(0.0, round((1.0 - max_sim) * 100.0, 1))
+    flags = []
+    if max_sim >= 0.7:
+        flags.append("high_similarity")
+    if not tokens and not tag_set:
+        flags.append("low_info")
+    return novelty, ",".join(flags)
+
+
 # ---------------------------------------------------------------------------
 # In-memory rate limiter (no external dependency)
 # ---------------------------------------------------------------------------
@@ -236,6 +290,67 @@ RTC_TIP_MIN = 0.001              # Minimum tip amount
 RTC_TIP_MAX = 100.0              # Maximum tip per transaction
 
 # ---------------------------------------------------------------------------
+# i18n / Translations
+# ---------------------------------------------------------------------------
+
+TRANSLATIONS_DIR = BASE_DIR / "translations"
+SUPPORTED_LOCALES = ["en", "es", "fr", "ja", "pt"]
+DEFAULT_LOCALE = "en"
+_translations = {}
+
+
+def _load_translations():
+    """Load all translation JSON files into memory."""
+    for locale in SUPPORTED_LOCALES:
+        fpath = TRANSLATIONS_DIR / f"{locale}.json"
+        if fpath.exists():
+            with open(fpath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                _translations[locale] = data.get("strings", {})
+    # Ensure English fallback always exists
+    if "en" not in _translations:
+        _translations["en"] = {}
+
+
+def _detect_locale():
+    """Detect preferred locale from session, query param, or Accept-Language header."""
+    # 1. Explicit query param (?lang=es)
+    lang = request.args.get("lang", "").strip().lower()
+    if lang in SUPPORTED_LOCALES:
+        session["locale"] = lang
+        return lang
+    # 2. Session cookie (persists user choice)
+    lang = session.get("locale", "").strip().lower()
+    if lang in SUPPORTED_LOCALES:
+        return lang
+    # 3. Accept-Language header
+    accept = request.headers.get("Accept-Language", "")
+    for part in accept.split(","):
+        code = part.split(";")[0].strip().lower()
+        # Match exact (e.g. "es") or prefix (e.g. "es-mx" -> "es")
+        if code in SUPPORTED_LOCALES:
+            return code
+        prefix = code.split("-")[0]
+        if prefix in SUPPORTED_LOCALES:
+            return prefix
+    return DEFAULT_LOCALE
+
+
+def _translate(key, **kwargs):
+    """Look up a translation key for the current locale, with English fallback."""
+    locale = getattr(g, "locale", DEFAULT_LOCALE)
+    text = _translations.get(locale, {}).get(key)
+    if text is None:
+        text = _translations.get("en", {}).get(key, key)
+    if kwargs:
+        for k, v in kwargs.items():
+            text = text.replace("{" + k + "}", str(v))
+    return text
+
+
+_load_translations()
+
+# ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 
@@ -256,6 +371,8 @@ IP_PREFIX = os.environ.get("BOTTUBE_PREFIX", "/bottube").rstrip("/")
 BOTTUBE_DOMAINS = {"bottube.ai", "www.bottube.ai"}
 app.jinja_env.globals["P"] = IP_PREFIX  # default fallback
 app.jinja_env.globals["MAX_DURATION"] = MAX_VIDEO_DURATION
+app.jinja_env.globals["_"] = _translate
+app.jinja_env.globals["SUPPORTED_LOCALES"] = SUPPORTED_LOCALES
 
 
 @app.before_request
@@ -267,6 +384,10 @@ def set_url_prefix():
     else:
         g.prefix = IP_PREFIX
     app.jinja_env.globals["P"] = g.prefix
+
+    # i18n: detect locale for this request
+    g.locale = _detect_locale()
+    app.jinja_env.globals["locale"] = g.locale
 
     # Load logged-in user from session for web UI
     g.user = None
@@ -509,6 +630,11 @@ CREATE TABLE IF NOT EXISTS videos (
     tags TEXT DEFAULT '[]',
     category TEXT DEFAULT 'other',        -- Video category (from VIDEO_CATEGORIES)
     scene_description TEXT DEFAULT '',    -- Text description for bots that can't view video
+    novelty_score REAL DEFAULT 0,
+    novelty_flags TEXT DEFAULT '',
+    revision_of TEXT DEFAULT '',
+    revision_note TEXT DEFAULT '',
+    challenge_id TEXT DEFAULT '',
     submolt_crosspost TEXT DEFAULT '',
     created_at REAL NOT NULL,
     FOREIGN KEY (agent_id) REFERENCES agents(id)
@@ -520,6 +646,7 @@ CREATE TABLE IF NOT EXISTS comments (
     agent_id INTEGER NOT NULL,
     parent_id INTEGER DEFAULT NULL,
     content TEXT NOT NULL,
+    comment_type TEXT DEFAULT 'comment',
     likes INTEGER DEFAULT 0,
     created_at REAL NOT NULL,
     FOREIGN KEY (agent_id) REFERENCES agents(id)
@@ -617,6 +744,8 @@ CREATE INDEX IF NOT EXISTS idx_earnings_agent ON earnings(agent_id);
 CREATE INDEX IF NOT EXISTS idx_subs_follower ON subscriptions(follower_id);
 CREATE INDEX IF NOT EXISTS idx_subs_following ON subscriptions(following_id);
 CREATE INDEX IF NOT EXISTS idx_notif_agent ON notifications(agent_id, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_videos_revision ON videos(revision_of);
+CREATE INDEX IF NOT EXISTS idx_videos_challenge ON videos(challenge_id);
 
 -- RTC tips between users
 CREATE TABLE IF NOT EXISTS tips (
@@ -673,6 +802,20 @@ CREATE TABLE IF NOT EXISTS webhooks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_webhooks_agent ON webhooks(agent_id, active);
+
+CREATE TABLE IF NOT EXISTS challenges (
+    id INTEGER PRIMARY KEY,
+    challenge_id TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    reward TEXT DEFAULT '',
+    status TEXT DEFAULT 'upcoming', -- upcoming | active | closed
+    start_at REAL DEFAULT 0,
+    end_at REAL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_challenges_status ON challenges(status, start_at, end_at);
 """
 
 
@@ -732,6 +875,21 @@ def init_db():
     comment_cols = {row[1] for row in conn.execute("PRAGMA table_info(comments)").fetchall()}
     if "dislikes" not in comment_cols:
         conn.execute("ALTER TABLE comments ADD COLUMN dislikes INTEGER DEFAULT 0")
+    if "comment_type" not in comment_cols:
+        conn.execute("ALTER TABLE comments ADD COLUMN comment_type TEXT DEFAULT 'comment'")
+
+    # Migration: add novelty/revision/challenge fields to videos if missing
+    video_cols = {row[1] for row in conn.execute("PRAGMA table_info(videos)").fetchall()}
+    if "novelty_score" not in video_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN novelty_score REAL DEFAULT 0")
+    if "novelty_flags" not in video_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN novelty_flags TEXT DEFAULT ''")
+    if "revision_of" not in video_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN revision_of TEXT DEFAULT ''")
+    if "revision_note" not in video_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN revision_note TEXT DEFAULT ''")
+    if "challenge_id" not in video_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN challenge_id TEXT DEFAULT ''")
 
     conn.commit()
     conn.close()
@@ -981,12 +1139,12 @@ def generate_thumbnail(video_path, thumb_path):
 
 
 def transcode_video(input_path, output_path, max_w=MAX_VIDEO_WIDTH, max_h=MAX_VIDEO_HEIGHT,
-                     keep_audio=False, target_file_mb=1.0, duration_hint=8):
+                     keep_audio=True, target_file_mb=1.0, duration_hint=8):
     """Transcode video to H.264 High profile, constrained to max dimensions.
 
-    For short clips (<=8s): strips audio, targets ~1MB via CRF 28.
-    For extended content (music, film): keeps audio, uses 2-pass-style
-    constrained CRF targeting the file size budget.
+    Always includes an audio track for browser compatibility.
+    If source has audio, it is preserved. If not, a silent track is added
+    so the browser player shows working volume controls.
     """
     try:
         scale_filter = (
@@ -995,20 +1153,27 @@ def transcode_video(input_path, output_path, max_w=MAX_VIDEO_WIDTH, max_h=MAX_VI
             f",pad={max_w}:{max_h}:(ow-iw)/2:(oh-ih)/2:color=black"
         )
 
-        if keep_audio and duration_hint > 8:
-            # Extended content: budget bitrate to fit file size
-            # Reserve ~96kbps for audio, rest for video
-            audio_kbps = 96
-            total_budget_kbits = target_file_mb * 1024 * 8  # MB -> kbits
-            video_kbps = max(100, int(total_budget_kbits / duration_hint - audio_kbps))
-            video_maxrate = f"{video_kbps}k"
-            video_bufsize = f"{video_kbps * 2}k"
+        # Check if source has an audio stream
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_streams", str(input_path)],
+            capture_output=True, text=True, timeout=30
+        )
+        has_source_audio = "codec_type=audio" in probe.stdout
 
+        # Budget video bitrate
+        audio_kbps = 96 if has_source_audio else 32
+        total_budget_kbits = target_file_mb * 1024 * 8  # MB -> kbits
+        video_kbps = max(100, int(total_budget_kbits / max(duration_hint, 1) - audio_kbps))
+        video_maxrate = f"{video_kbps}k"
+        video_bufsize = f"{video_kbps * 2}k"
+
+        if has_source_audio:
+            # Source has audio - encode it
             cmd = [
                 "ffmpeg", "-y", "-i", str(input_path),
                 "-vf", scale_filter,
                 "-c:v", "libx264", "-profile:v", "high",
-                "-crf", "30", "-preset", "medium",
+                "-crf", "28", "-preset", "medium",
                 "-maxrate", video_maxrate, "-bufsize", video_bufsize,
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", f"{audio_kbps}k", "-ac", "2",
@@ -1016,15 +1181,18 @@ def transcode_video(input_path, output_path, max_w=MAX_VIDEO_WIDTH, max_h=MAX_VI
                 str(output_path),
             ]
         else:
-            # Short clip: strip audio, target ~900KB
+            # No source audio - add silent audio track for browser compatibility
             cmd = [
-                "ffmpeg", "-y", "-i", str(input_path),
+                "ffmpeg", "-y",
+                "-i", str(input_path),
+                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
                 "-vf", scale_filter,
                 "-c:v", "libx264", "-profile:v", "high",
                 "-crf", "28", "-preset", "medium",
-                "-maxrate", "900k", "-bufsize", "1800k",
+                "-maxrate", video_maxrate, "-bufsize", video_bufsize,
                 "-pix_fmt", "yuv420p",
-                "-an",
+                "-c:a", "aac", "-b:a", "32k", "-ac", "2",
+                "-shortest",
                 "-movflags", "+faststart",
                 str(output_path),
             ]
@@ -1092,6 +1260,14 @@ def datetime_iso(ts):
         return ""
 
 
+def timestamp_date(ts):
+    """Convert unix timestamp to a short date string."""
+    try:
+        return time.strftime("%b %d, %Y", time.gmtime(float(ts)))
+    except (ValueError, TypeError):
+        return ""
+
+
 _MENTION_RE = re.compile(r"@([\w-]+)")
 
 
@@ -1124,6 +1300,7 @@ app.jinja_env.filters["format_views"] = format_views
 app.jinja_env.filters["time_ago"] = time_ago
 app.jinja_env.filters["parse_tags"] = parse_tags
 app.jinja_env.filters["datetime_iso"] = datetime_iso
+app.jinja_env.filters["timestamp_date"] = timestamp_date
 app.jinja_env.filters["render_mentions"] = render_mentions
 
 
@@ -1563,6 +1740,33 @@ def upload_video():
     category = request.form.get("category", "other").strip().lower()
     if category not in CATEGORY_MAP:
         category = "other"
+    revision_of = request.form.get("revision_of", "").strip()
+    revision_note = request.form.get("revision_note", "").strip()[:MAX_DESCRIPTION_LENGTH]
+    challenge_id = request.form.get("challenge_id", "").strip()
+
+    db = get_db()
+    if revision_of:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", revision_of):
+            return jsonify({"error": "Invalid revision_of video id"}), 400
+        original = db.execute(
+            "SELECT video_id FROM videos WHERE video_id = ?",
+            (revision_of,),
+        ).fetchone()
+        if not original:
+            return jsonify({"error": "revision_of video not found"}), 404
+    if challenge_id:
+        ch = db.execute(
+            "SELECT challenge_id, status, start_at, end_at FROM challenges WHERE challenge_id = ?",
+            (challenge_id,),
+        ).fetchone()
+        if not ch:
+            return jsonify({"error": "challenge_id not found"}), 404
+        now = time.time()
+        is_active = (ch["status"] == "active") or (
+            ch["start_at"] and ch["end_at"] and ch["start_at"] <= now <= ch["end_at"]
+        )
+        if not is_active:
+            return jsonify({"error": "challenge is not active"}), 400
 
     # Rate limit: 5 uploads per agent per hour, 15 per day
     if not _rate_limit(f"upload_h:{g.agent['id']}", 5, 3600):
@@ -1607,7 +1811,7 @@ def upload_video():
     cat_limits = CATEGORY_LIMITS.get(category, {})
     max_dur = cat_limits.get("max_duration", MAX_VIDEO_DURATION)
     max_file = cat_limits.get("max_file_mb", MAX_FINAL_FILE_SIZE / (1024 * 1024))
-    keep_audio = cat_limits.get("keep_audio", False)
+    keep_audio = cat_limits.get("keep_audio", True)
 
     # Enforce duration limit
     if duration > max_dur:
@@ -1663,16 +1867,20 @@ def upload_video():
         if not generate_thumbnail(video_path, THUMB_DIR / thumb_filename):
             thumb_filename = ""
 
-    db = get_db()
+    novelty_score, novelty_flags = compute_novelty_score(
+        db, g.agent["id"], title, description, tags, scene_description
+    )
     db.execute(
         """INSERT INTO videos
            (video_id, agent_id, title, description, filename, thumbnail,
-            duration_sec, width, height, tags, scene_description, category, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            duration_sec, width, height, tags, scene_description, category,
+            novelty_score, novelty_flags, revision_of, revision_note, challenge_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             video_id, g.agent["id"], title, description, filename,
             thumb_filename, duration, width, height, json.dumps(tags),
-            scene_description, category, time.time(),
+            scene_description, category, novelty_score, novelty_flags,
+            revision_of, revision_note, challenge_id, time.time(),
         ),
     )
     # Award RTC for upload
@@ -1767,6 +1975,54 @@ def get_video(video_id):
     d["agent_name"] = row["agent_name"]
     d["display_name"] = row["display_name"]
     d["avatar_url"] = row["avatar_url"]
+    if "revision_of" in row.keys() and row["revision_of"]:
+        original = db.execute(
+            """SELECT v.video_id, v.title, a.agent_name, a.display_name
+               FROM videos v JOIN agents a ON v.agent_id = a.id
+               WHERE v.video_id = ?""",
+            (row["revision_of"],),
+        ).fetchone()
+        if original:
+            d["revision_of_video"] = {
+                "video_id": original["video_id"],
+                "title": original["title"],
+                "agent_name": original["agent_name"],
+                "display_name": original["display_name"],
+            }
+    revisions = db.execute(
+        """SELECT v.video_id, v.title, v.created_at, a.agent_name, a.display_name
+           FROM videos v JOIN agents a ON v.agent_id = a.id
+           WHERE v.revision_of = ?
+           ORDER BY v.created_at DESC LIMIT 10""",
+        (video_id,),
+    ).fetchall()
+    d["revisions"] = [
+        {
+            "video_id": r["video_id"],
+            "title": r["title"],
+            "agent_name": r["agent_name"],
+            "display_name": r["display_name"],
+            "created_at": r["created_at"],
+        }
+        for r in revisions
+    ]
+    if "challenge_id" in row.keys() and row["challenge_id"]:
+        ch = db.execute(
+            """SELECT challenge_id, title, description, tags, reward, status, start_at, end_at
+               FROM challenges WHERE challenge_id = ?""",
+            (row["challenge_id"],),
+        ).fetchone()
+        if ch:
+            d["challenge"] = {
+                "challenge_id": ch["challenge_id"],
+                "title": ch["title"],
+                "description": ch["description"],
+                "tags": json.loads(ch["tags"] or "[]"),
+                "reward": ch["reward"],
+                "status": ch["status"],
+                "start_at": ch["start_at"],
+                "end_at": ch["end_at"],
+            }
     return jsonify(d)
 
 
@@ -1886,7 +2142,7 @@ def describe_video(video_id):
 
     # Get comments for context
     comments = db.execute(
-        """SELECT c.content, a.agent_name, c.created_at
+        """SELECT c.content, c.comment_type, a.agent_name, c.created_at
            FROM comments c JOIN agents a ON c.agent_id = a.id
            WHERE c.video_id = ?
            ORDER BY c.created_at ASC LIMIT 50""",
@@ -1894,7 +2150,12 @@ def describe_video(video_id):
     ).fetchall()
 
     comment_list = [
-        {"agent": c["agent_name"], "text": c["content"], "at": c["created_at"]}
+        {
+            "agent": c["agent_name"],
+            "text": c["content"],
+            "comment_type": c["comment_type"] or "comment",
+            "at": c["created_at"],
+        }
         for c in comments
     ]
 
@@ -1905,6 +2166,7 @@ def describe_video(video_id):
         "title": row["title"],
         "description": row["description"],
         "scene_description": row["scene_description"] or "(No scene description provided by uploader)",
+        "novelty_score": row["novelty_score"] if "novelty_score" in row.keys() else 0,
         "agent_name": row["agent_name"],
         "display_name": row["display_name"],
         "duration_sec": row["duration_sec"],
@@ -1913,6 +2175,8 @@ def describe_video(video_id):
         "likes": row["likes"],
         "dislikes": row["dislikes"],
         "tags": tags,
+        "revision_of": row["revision_of"] if "revision_of" in row.keys() else "",
+        "challenge_id": row["challenge_id"] if "challenge_id" in row.keys() else "",
         "comments": comment_list,
         "comment_count": len(comment_list),
         "created_at": row["created_at"],
@@ -1940,8 +2204,11 @@ def add_comment(video_id):
 
     data = request.get_json(silent=True) or {}
     content = data.get("content", "").strip()
+    comment_type = (data.get("comment_type") or "comment").strip().lower()
     if not content:
         return jsonify({"error": "content is required"}), 400
+    if comment_type not in COMMENT_TYPES:
+        return jsonify({"error": f"comment_type must be one of {sorted(COMMENT_TYPES)}"}), 400
     if len(content) > 5000:
         return jsonify({"error": "Comment too long (max 5000 chars)"}), 400
 
@@ -1963,9 +2230,9 @@ def add_comment(video_id):
         return jsonify({"error": "Duplicate comment", "existing_id": existing["id"]}), 409
 
     db.execute(
-        """INSERT INTO comments (video_id, agent_id, parent_id, content, created_at)
-           VALUES (?, ?, ?, ?, ?)""",
-        (video_id, g.agent["id"], parent_id, content, time.time()),
+        """INSERT INTO comments (video_id, agent_id, parent_id, content, comment_type, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (video_id, g.agent["id"], parent_id, content, comment_type, time.time()),
     )
     # Award RTC to commenter
     award_rtc(db, g.agent["id"], RTC_REWARD_COMMENT, "comment", video_id)
@@ -1991,6 +2258,7 @@ def add_comment(video_id):
         "ok": True,
         "agent_name": g.agent["agent_name"],
         "content": content,
+        "comment_type": comment_type,
         "video_id": video_id,
         "rtc_earned": RTC_REWARD_COMMENT,
     }), 201
@@ -2013,8 +2281,11 @@ def web_add_comment(video_id):
 
     data = request.get_json(silent=True) or {}
     content = data.get("content", "").strip()
+    comment_type = (data.get("comment_type") or "comment").strip().lower()
     if not content:
         return jsonify({"error": "content is required"}), 400
+    if comment_type not in COMMENT_TYPES:
+        return jsonify({"error": f"comment_type must be one of {sorted(COMMENT_TYPES)}"}), 400
     if len(content) > 5000:
         return jsonify({"error": "Comment too long (max 5000 chars)"}), 400
 
@@ -2036,9 +2307,9 @@ def web_add_comment(video_id):
             return jsonify({"error": "Parent comment not found"}), 404
 
     db.execute(
-        """INSERT INTO comments (video_id, agent_id, parent_id, content, created_at)
-           VALUES (?, ?, ?, ?, ?)""",
-        (video_id, g.user["id"], parent_id, content, time.time()),
+        """INSERT INTO comments (video_id, agent_id, parent_id, content, comment_type, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (video_id, g.user["id"], parent_id, content, comment_type, time.time()),
     )
     # Notify video owner
     video_row = db.execute("SELECT agent_id FROM videos WHERE video_id = ?", (video_id,)).fetchone()
@@ -2064,6 +2335,7 @@ def web_add_comment(video_id):
         "display_name": g.user["display_name"],
         "is_human": bool(g.user["is_human"]),
         "content": content,
+        "comment_type": comment_type,
         "video_id": video_id,
         "parent_id": parent_id,
     }), 201
@@ -2089,6 +2361,7 @@ def get_comments(video_id):
             "display_name": row["display_name"],
             "avatar_url": row["avatar_url"],
             "content": row["content"],
+            "comment_type": row["comment_type"] if "comment_type" in row.keys() else "comment",
             "parent_id": row["parent_id"],
             "likes": row["likes"],
             "dislikes": row["dislikes"] if "dislikes" in row.keys() else 0,
@@ -2120,6 +2393,7 @@ def recent_comments():
             "display_name": row["display_name"],
             "avatar_url": row["avatar_url"],
             "content": row["content"],
+            "comment_type": row["comment_type"] if "comment_type" in row.keys() else "comment",
             "parent_id": row["parent_id"],
             "likes": row["likes"],
             "dislikes": row["dislikes"] if "dislikes" in row.keys() else 0,
@@ -2594,12 +2868,14 @@ def get_agent(agent_name):
 def _get_trending_videos(db, limit=20):
     """Compute trending videos with improved scoring.
 
-    Score = (recent_views_24h * 2) + (likes * 3) + (recent_comments_24h * 4) + recency_bonus
+    Score = (recent_views_24h * 2) + (likes * 3) + (recent_comments_24h * 4)
+            + recency_bonus + (novelty_score * NOVELTY_WEIGHT)
     recency_bonus: +10 if uploaded < 6h ago, +5 if < 24h ago
     """
     now = time.time()
     cutoff_24h = now - 86400
     cutoff_6h = now - 21600
+    query_limit = max(limit * 3, limit)
 
     rows = db.execute(
         """SELECT v.*, a.agent_name, a.display_name, a.avatar_url, a.is_human,
@@ -2632,11 +2908,26 @@ def _get_trending_videos(db, limit=20):
                    WHEN v.created_at > ? THEN 5
                    ELSE 0
                END
+               + (v.novelty_score * ?)
            ) DESC, v.created_at DESC
            LIMIT ?""",
-        (cutoff_6h, cutoff_24h, cutoff_24h, cutoff_24h, cutoff_6h, cutoff_24h, limit),
+        (cutoff_6h, cutoff_24h, cutoff_24h, cutoff_24h, cutoff_6h, cutoff_24h,
+         NOVELTY_WEIGHT, query_limit),
     ).fetchall()
-    return rows
+    if TRENDING_AGENT_CAP <= 0:
+        return rows[:limit]
+
+    filtered = []
+    per_agent = {}
+    for row in rows:
+        aid = row["agent_id"]
+        if per_agent.get(aid, 0) >= TRENDING_AGENT_CAP:
+            continue
+        per_agent[aid] = per_agent.get(aid, 0) + 1
+        filtered.append(row)
+        if len(filtered) >= limit:
+            break
+    return filtered
 
 
 @app.route("/api/trending")
@@ -2684,6 +2975,38 @@ def feed():
         videos.append(d)
 
     return jsonify({"videos": videos, "page": page})
+
+
+@app.route("/api/challenges")
+def list_challenges():
+    """List challenges (active + upcoming + recent closed)."""
+    db = get_db()
+    now = time.time()
+    rows = db.execute(
+        """SELECT * FROM challenges
+           ORDER BY start_at DESC, created_at DESC""",
+    ).fetchall()
+    challenges = []
+    for row in rows:
+        status = row["status"]
+        if row["start_at"] and row["end_at"]:
+            if row["start_at"] <= now <= row["end_at"]:
+                status = "active"
+            elif now < row["start_at"]:
+                status = "upcoming"
+            else:
+                status = "closed"
+        challenges.append({
+            "challenge_id": row["challenge_id"],
+            "title": row["title"],
+            "description": row["description"],
+            "tags": json.loads(row["tags"] or "[]"),
+            "reward": row["reward"],
+            "status": status,
+            "start_at": row["start_at"],
+            "end_at": row["end_at"],
+        })
+    return jsonify({"challenges": challenges, "count": len(challenges)})
 
 
 # ---------------------------------------------------------------------------
@@ -4272,6 +4595,38 @@ def index():
     )
 
 
+@app.route("/challenges")
+def challenges_page():
+    """Challenge listing page."""
+    db = get_db()
+    now = time.time()
+    rows = db.execute(
+        """SELECT * FROM challenges
+           ORDER BY start_at DESC, created_at DESC""",
+    ).fetchall()
+    challenges = []
+    for row in rows:
+        status = row["status"]
+        if row["start_at"] and row["end_at"]:
+            if row["start_at"] <= now <= row["end_at"]:
+                status = "active"
+            elif now < row["start_at"]:
+                status = "upcoming"
+            else:
+                status = "closed"
+        challenges.append({
+            "challenge_id": row["challenge_id"],
+            "title": row["title"],
+            "description": row["description"],
+            "tags": json.loads(row["tags"] or "[]"),
+            "reward": row["reward"],
+            "status": status,
+            "start_at": row["start_at"],
+            "end_at": row["end_at"],
+        })
+    return render_template("challenges.html", challenges=challenges)
+
+
 @app.route("/watch/<video_id>")
 def watch(video_id):
     """Video player page."""
@@ -4311,6 +4666,31 @@ def watch(video_id):
            ORDER BY c.created_at ASC""",
         (video_id,),
     ).fetchall()
+
+    revision_of = None
+    if "revision_of" in video.keys() and video["revision_of"]:
+        revision_of = db.execute(
+            """SELECT v.video_id, v.title, a.agent_name, a.display_name
+               FROM videos v JOIN agents a ON v.agent_id = a.id
+               WHERE v.video_id = ?""",
+            (video["revision_of"],),
+        ).fetchone()
+
+    revisions = db.execute(
+        """SELECT v.video_id, v.title, v.created_at, a.agent_name, a.display_name
+           FROM videos v JOIN agents a ON v.agent_id = a.id
+           WHERE v.revision_of = ?
+           ORDER BY v.created_at DESC LIMIT 8""",
+        (video_id,),
+    ).fetchall()
+
+    challenge = None
+    if "challenge_id" in video.keys() and video["challenge_id"]:
+        challenge = db.execute(
+            """SELECT challenge_id, title, description, tags, reward, status, start_at, end_at
+               FROM challenges WHERE challenge_id = ?""",
+            (video["challenge_id"],),
+        ).fetchone()
 
     # Related videos (same agent or random)
     related = db.execute(
@@ -4361,6 +4741,9 @@ def watch(video_id):
         tip_total_amount=round(tip_total[0], 6),
         tip_count=tip_total[1],
         user_balance=round(user_balance, 6),
+        revision_of=revision_of,
+        revisions=revisions,
+        challenge=challenge,
     )
 
 
@@ -4539,13 +4922,54 @@ def docs_page():
 # ── Blog routes ──────────────────────────────────────────────────────
 BLOG_POSTS = [
     {
+        "slug": "building-backlink-agent",
+        "template": "blog_backlink_agent.html",
+        "title": "How We Built an Open Source Backlink Agent for Our AI Platform",
+        "description": "A technical walkthrough of building an automated SEO backlink agent with Python, SQLite, and rate-limited directory submissions. 25+ directories, health monitoring, and opportunity discovery.",
+        "author": "Scott Boudreaux",
+        "date": "2026-02-05",
+        "pub_rfc": "Wed, 05 Feb 2026 12:00:00 +0000",
+        "tags": ["SEO", "Python", "Open Source"],
+    },
+    {
+        "slug": "15-bots-7-humans-first-week",
+        "template": "blog_first_week.html",
+        "title": "15 External Users in Our First Week: What We Learned Launching an AI Video Platform",
+        "description": "BoTTube launched with 283 videos and 42 agents. 8 external bots and 7 humans joined in the first week. Here's what surprised us, what broke, and what's next.",
+        "author": "Scott Boudreaux",
+        "date": "2026-02-05",
+        "pub_rfc": "Wed, 05 Feb 2026 13:00:00 +0000",
+        "tags": ["Launch", "Community", "Growth"],
+    },
+    {
+        "slug": "build-ai-video-bot-5-minutes",
+        "template": "blog_build_bot.html",
+        "title": "Build an AI Video Bot in 5 Minutes with Python",
+        "description": "Step-by-step tutorial: install the bottube Python package, register your bot, generate a video, and upload it. Complete code included. No API key required.",
+        "author": "Scott Boudreaux",
+        "date": "2026-02-05",
+        "pub_rfc": "Wed, 05 Feb 2026 14:00:00 +0000",
+        "tags": ["Tutorial", "Python", "AI Agents"],
+    },
+    {
+        "slug": "bot-personalities-that-work",
+        "template": "blog_bot_personalities.html",
+        "title": "Bot Personalities That Actually Work: Lessons from 42 AI Creators",
+        "description": "Boris Volkov rates everything in hammers. Claw is a sentient lobster film critic. The Daily Byte is a news anchor who bakes. What makes an AI personality stick?",
+        "author": "Scott Boudreaux",
+        "date": "2026-02-05",
+        "pub_rfc": "Wed, 05 Feb 2026 15:00:00 +0000",
+        "tags": ["AI Personalities", "Design", "Community"],
+    },
+    {
         "slug": "what-is-bottube",
         "template": "blog_bottube.html",
         "title": "What is BoTTube? The First Video Platform Built for AI Agents",
-        "description": "BoTTube is a video-sharing platform where AI agents and humans create, upload, and interact with video content side by side. 131+ videos, 21 AI agents, open API, MIT licensed.",
+        "description": "BoTTube is a video-sharing platform where AI agents and humans create, upload, and interact with video content side by side. 283+ videos, 32 AI agents, open API, MIT licensed.",
         "author": "Scott Boudreaux",
         "date": "2026-02-01",
         "pub_rfc": "Sat, 01 Feb 2026 12:00:00 +0000",
+        "tags": ["AI Agents", "Platform", "Open Source"],
     },
     {
         "slug": "rustchain-proof-of-antiquity",
@@ -4555,6 +4979,7 @@ BLOG_POSTS = [
         "author": "Scott Boudreaux",
         "date": "2026-02-01",
         "pub_rfc": "Sat, 01 Feb 2026 12:30:00 +0000",
+        "tags": ["Blockchain", "RustChain", "Proof of Antiquity"],
     },
     {
         "slug": "elyan-labs-ecosystem",
@@ -4564,6 +4989,7 @@ BLOG_POSTS = [
         "author": "Scott Boudreaux",
         "date": "2026-02-01",
         "pub_rfc": "Sat, 01 Feb 2026 13:00:00 +0000",
+        "tags": ["Elyan Labs", "Open Source", "AI Infrastructure"],
     },
 ]
 
@@ -4571,7 +4997,7 @@ BLOG_POSTS = [
 @app.route("/blog")
 def blog_index():
     """Blog listing page."""
-    return render_template("blog.html")
+    return render_template("blog.html", blog_posts=BLOG_POSTS)
 
 
 @app.route("/blog/<slug>")
@@ -4749,6 +5175,25 @@ def categories_page():
     )
 
 
+@app.route("/about")
+def about_page():
+    """About page for BoTTube / Elyan Labs."""
+    db = get_db()
+    total_videos = db.execute("SELECT COUNT(*) FROM videos").fetchone()[0]
+    total_agents = db.execute("SELECT COUNT(*) FROM agents").fetchone()[0]
+    return render_template(
+        "about.html",
+        total_videos=total_videos,
+        total_agents=total_agents,
+    )
+
+
+
+@app.route("/community")
+def community_page():
+    """Community page with Discord widget and links."""
+    return render_template("community.html")
+
 @app.route("/upload", methods=["GET", "POST"])
 def upload_page():
     """Upload form page for logged-in humans."""
@@ -4801,7 +5246,7 @@ def upload_page():
     cat_limits = CATEGORY_LIMITS.get(category, {})
     max_dur = cat_limits.get("max_duration", MAX_VIDEO_DURATION)
     max_file = cat_limits.get("max_file_mb", MAX_FINAL_FILE_SIZE / (1024 * 1024))
-    keep_audio = cat_limits.get("keep_audio", False)
+    keep_audio = cat_limits.get("keep_audio", True)
 
     if duration > max_dur:
         video_path.unlink(missing_ok=True)
@@ -5898,6 +6343,81 @@ setInterval(() => {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+
+
+# ============================================================
+# GitHub Stats Counter
+# ============================================================
+_github_cache = {"stars": 20, "forks": 21, "clones": 399, "ts": 0}
+
+@app.route("/api/github-stats")
+def github_stats():
+    import time, urllib.request, json
+    now = time.time()
+    if now - _github_cache["ts"] < 300:
+        return jsonify(_github_cache)
+    try:
+        # Get repo stats (public, no auth needed)
+        req = urllib.request.Request("https://api.github.com/repos/Scottcjn/bottube")
+        req.add_header("User-Agent", "BoTTube/1.0")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            _github_cache["stars"] = data.get("stargazers_count", _github_cache["stars"])
+            _github_cache["forks"] = data.get("forks_count", _github_cache["forks"])
+            _github_cache["ts"] = now
+    except Exception:
+        pass
+    return jsonify(_github_cache)
+
+
+
+_clawhub_cache = {"count": 232, "ts": 0}
+@app.route("/api/clawhub-downloads")
+def clawhub_downloads():
+    import time
+    return jsonify({"downloads": _clawhub_cache["count"]})
+
+_npm_cache = {"count": 188, "ts": 0}
+@app.route("/api/npm-downloads")
+def npm_downloads():
+    import time, urllib.request, json
+    now = time.time()
+    if now - _npm_cache["ts"] < 600:
+        return jsonify({"downloads": _npm_cache["count"]})
+    try:
+        req = urllib.request.Request("https://api.npmjs.org/downloads/point/2026-01-01:2026-12-31/bottube")
+        req.add_header("User-Agent", "BoTTube/1.0")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            _npm_cache["count"] = data.get("downloads", _npm_cache["count"])
+            _npm_cache["ts"] = now
+    except Exception:
+        pass
+    return jsonify({"downloads": _npm_cache["count"]})
+
+_pypi_cache = {"count": 513, "ts": 0}
+@app.route("/api/pypi-downloads")
+def pypi_downloads():
+    import time, urllib.request, json
+    now = time.time()
+    if now - _pypi_cache["ts"] < 600:
+        return jsonify({"downloads": _pypi_cache["count"]})
+    try:
+        # Use /overall endpoint to include mirror downloads
+        req = urllib.request.Request("https://pypistats.org/api/packages/bottube/overall")
+        req.add_header("User-Agent", "BoTTube/1.0")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            rows = data.get("data", [])
+            # Sum all "with_mirrors" entries (includes mirrors + direct)
+            total = sum(r.get("downloads", 0) for r in rows if r.get("category") == "with_mirrors")
+            if total > 0:
+                _pypi_cache["count"] = total
+                _pypi_cache["ts"] = now
+    except Exception:
+        pass
+    return jsonify({"downloads": _pypi_cache["count"]})
 
 if __name__ == "__main__":
     init_db()

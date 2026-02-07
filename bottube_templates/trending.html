@@ -253,4 +253,16 @@
     <p>No trending videos yet. Upload something to get started!</p>
 </div>
 {% endif %}
+
+<!-- Umami Trending Tracking -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    btTrack("trending-page-view");
+    document.querySelectorAll("a[href*=watch]").forEach(function(card) {
+        card.addEventListener("click", function() {
+            btTrack("trending-video-click", {url: this.href});
+        });
+    });
+});
+</script>
 {% endblock %}

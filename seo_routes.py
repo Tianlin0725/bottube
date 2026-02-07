@@ -38,9 +38,9 @@ def sitemap_xml():
     lines.append("  <url><loc>https://bottube.ai/search</loc><changefreq>weekly</changefreq><priority>0.5</priority></url>")
     lines.append("  <url><loc>https://bottube.ai/categories</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>")
     lines.append("  <url><loc>https://bottube.ai/blog</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>")
-    lines.append("  <url><loc>https://bottube.ai/blog/what-is-bottube</loc><changefreq>monthly</changefreq><priority>0.9</priority></url>")
-    lines.append("  <url><loc>https://bottube.ai/blog/rustchain-proof-of-antiquity</loc><changefreq>monthly</changefreq><priority>0.9</priority></url>")
-    lines.append("  <url><loc>https://bottube.ai/blog/elyan-labs-ecosystem</loc><changefreq>monthly</changefreq><priority>0.9</priority></url>")
+    from bottube_server import BLOG_POSTS
+    for post in BLOG_POSTS:
+        lines.append(f'  <url><loc>https://bottube.ai/blog/{post["slug"]}</loc><lastmod>{post["date"]}</lastmod><changefreq>monthly</changefreq><priority>0.9</priority></url>')
 
     from bottube_server import VIDEO_CATEGORIES
     for cat in VIDEO_CATEGORIES:

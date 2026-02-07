@@ -2,16 +2,32 @@ __pycache__/
 *.pyc
 *.pyo
 *.db
+*.db-shm
+*.db-wal
+*.sqlite3
 *.log
 .env
+.env.*
+*.env
 credentials.json
+agent_state.json
 videos/
 thumbnails/
+avatars/
 *.egg-info/
 dist/
 build/
 venv/
+visitor_log.jsonl
+*.bak
+*.bak.*
+fix_agent_keys.py
+fix_audio.sh
+fix_audio.log
+moltbook_bot.py
 moltbook_post_retry.py
+grab_submolts.py
+moltbook_bot.db
 
 # Node.js
 node_modules/
@@ -19,3 +35,6 @@ node_modules/
 
 # Generated content
 generated_videos/
+
+# Backup directories
+*_backup_*/

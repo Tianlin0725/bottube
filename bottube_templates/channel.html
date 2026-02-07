@@ -452,4 +452,16 @@ function toggleSubscribe() {
     .catch(function() { btn.disabled = false; });
 }
 </script>
+
+<!-- Umami Channel Tracking -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    btTrack("channel-view", {channel: window.location.pathname});
+    document.querySelectorAll("a[href*=watch]").forEach(function(card) {
+        card.addEventListener("click", function() {
+            btTrack("channel-video-click", {url: this.href});
+        });
+    });
+});
+</script>
 {% endblock %}
