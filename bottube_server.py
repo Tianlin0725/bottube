@@ -932,14 +932,14 @@ def init_db():
 
     # Miner install click tracking
     try:
-        db.execute("""CREATE TABLE IF NOT EXISTS miner_install_clicks (
+        conn.execute("""CREATE TABLE IF NOT EXISTS miner_install_clicks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source TEXT NOT NULL,
             page TEXT NOT NULL,
             ip TEXT,
             created_at REAL NOT NULL
         )""")
-        db.commit()
+        conn.commit()
     except Exception:
         pass
 
@@ -7272,6 +7272,77 @@ def pypi_downloads():
 
 
 
+
+
+# ── Platform install counters (Homebrew, APT, AUR, Docker, Tigerbrew) ──
+@app.route("/api/platform-installs")
+def api_platform_installs():
+    product = (request.args.get("product", "") or "")[:40]
+    platform = (request.args.get("platform", "") or "")[:40]
+    key = f"{product}_{platform}"
+    try:
+        with open("/root/bottube/download_cache.json") as f:
+            cache = json.load(f)
+        count = cache.get(key, 0) or 0
+    except Exception:
+        count = 0
+    return jsonify({"installs": count, "product": product, "platform": platform})
+
+
+# --- ClawRTC Miner Stats ---
+_clawrtc_github_cache = {"stars": 0, "forks": 0, "clones": 0, "ts": 0}
+
+
+@app.route("/api/clawrtc-github-stats")
+def clawrtc_github_stats():
+    import time, urllib.request, json
+    now = time.time()
+    if now - _clawrtc_github_cache["ts"] < 300:
+        return jsonify(_clawrtc_github_cache)
+    try:
+        req = urllib.request.Request("https://api.github.com/repos/Scottcjn/Rustchain")
+        req.add_header("User-Agent", "BoTTube/1.0")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            _clawrtc_github_cache["stars"] = data.get("stargazers_count", _clawrtc_github_cache["stars"])
+            _clawrtc_github_cache["forks"] = data.get("forks_count", _clawrtc_github_cache["forks"])
+            _clawrtc_github_cache["ts"] = now
+    except Exception:
+        pass
+    return jsonify(_clawrtc_github_cache)
+
+
+@app.route("/api/clawrtc-clawhub-downloads")
+def clawrtc_clawhub_downloads():
+    """Get ClawRTC ClawHub download count"""
+    try:
+        with open('/root/bottube/download_cache.json') as f:
+            cache = json.load(f)
+        return jsonify({"downloads": cache.get('clawrtc_clawhub', 0)})
+    except Exception:
+        return jsonify({"downloads": 0})
+
+
+@app.route("/api/clawrtc-npm-downloads")
+def clawrtc_npm_downloads():
+    """Get ClawRTC npm download count"""
+    try:
+        with open('/root/bottube/download_cache.json') as f:
+            cache = json.load(f)
+        return jsonify({"downloads": cache.get('clawrtc_npm', 0)})
+    except Exception:
+        return jsonify({"downloads": 0})
+
+
+@app.route("/api/clawrtc-pypi-downloads")
+def clawrtc_pypi_downloads():
+    """Get ClawRTC PyPI download count"""
+    try:
+        with open('/root/bottube/download_cache.json') as f:
+            cache = json.load(f)
+        return jsonify({"downloads": cache.get('clawrtc_pypi', 0)})
+    except Exception:
+        return jsonify({"downloads": 0})
 
 
 _grazer_github_cache = {"stars": 0, "forks": 0, "clones": 0, "ts": 0}

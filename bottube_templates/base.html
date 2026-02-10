@@ -675,6 +675,9 @@
         </div>
 
         <!-- Download and Platform Counters -->
+        <div style="text-align:center;margin:8px auto 4px auto;max-width:700px;">
+            <span style="font-size:12px;color:#555;text-transform:uppercase;letter-spacing:2px;font-weight:600;">BoTTube SDK</span>
+        </div>
         <div id="bottube-counters" style="margin:16px auto 20px auto;max-width:700px;display:flex;flex-wrap:wrap;justify-content:center;gap:20px;padding:16px 12px;background:rgba(33,33,33,0.7);border:1px solid #333;border-radius:10px;">
             <div style="text-align:center;min-width:100px;">
                 <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">ClawHub</div>
@@ -701,6 +704,21 @@
                 <div id="ctr-github-clones" style="font-size:22px;font-weight:700;color:#8b949e;">--</div>
                 <div style="font-size:10px;color:#717171;">clones</div>
             </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Homebrew</div>
+                <div id="ctr-bottube-brew" style="font-size:22px;font-weight:700;color:#fbb040;">--</div>
+                <div style="font-size:10px;color:#717171;">installs</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">APT</div>
+                <div id="ctr-bottube-apt" style="font-size:22px;font-weight:700;color:#a3be8c;">--</div>
+                <div style="font-size:10px;color:#717171;">installs</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Docker</div>
+                <div id="ctr-bottube-docker" style="font-size:22px;font-weight:700;color:#2496ed;">--</div>
+                <div style="font-size:10px;color:#717171;">pulls</div>
+            </div>
         </div>
         <script>
         (function(){
@@ -721,6 +739,151 @@
                 if(s && d.stars!==undefined) s.textContent=fmt(d.stars);
                 if(c && d.clones!==undefined) c.textContent=fmt(d.clones);
             }).catch(function(){});
+            load("/api/platform-installs?product=bottube&platform=homebrew","ctr-bottube-brew","installs");
+            load("/api/platform-installs?product=bottube&platform=apt","ctr-bottube-apt","installs");
+            load("/api/platform-installs?product=bottube&platform=docker","ctr-bottube-docker","installs");
+        })();
+        </script>
+
+        <!-- Rustchain Proof of Antiquity ClawRTC Miner Counters -->
+        <div style="text-align:center;margin:12px auto 4px auto;max-width:700px;">
+            <span style="font-size:12px;color:#555;text-transform:uppercase;letter-spacing:2px;font-weight:600;">Rustchain Proof of Antiquity ClawRTC Miner</span>
+        </div>
+        <div id="clawrtc-counters" style="margin:4px auto 20px auto;max-width:700px;display:flex;flex-wrap:wrap;justify-content:center;gap:20px;padding:16px 12px;background:rgba(33,33,33,0.7);border:1px solid #333;border-radius:10px;">
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">ClawHub</div>
+                <div id="ctr-clawrtc-clawhub" style="font-size:22px;font-weight:700;color:#3ea6ff;">--</div>
+                <div style="font-size:10px;color:#717171;">downloads</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">npm</div>
+                <div id="ctr-clawrtc-npm" style="font-size:22px;font-weight:700;color:#cb3837;">--</div>
+                <div style="font-size:10px;color:#717171;">downloads</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">PyPI</div>
+                <div id="ctr-clawrtc-pypi" style="font-size:22px;font-weight:700;color:#3775a9;">--</div>
+                <div style="font-size:10px;color:#717171;">downloads</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">GitHub</div>
+                <div id="ctr-clawrtc-stars" style="font-size:22px;font-weight:700;color:#f0c040;">--</div>
+                <div style="font-size:10px;color:#717171;">stars</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">GitHub</div>
+                <div id="ctr-clawrtc-forks" style="font-size:22px;font-weight:700;color:#8b949e;">--</div>
+                <div style="font-size:10px;color:#717171;">forks</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Homebrew</div>
+                <div id="ctr-clawrtc-brew" style="font-size:22px;font-weight:700;color:#fbb040;">--</div>
+                <div style="font-size:10px;color:#717171;">installs</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">APT</div>
+                <div id="ctr-clawrtc-apt" style="font-size:22px;font-weight:700;color:#a3be8c;">--</div>
+                <div style="font-size:10px;color:#717171;">installs</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">AUR</div>
+                <div id="ctr-clawrtc-aur" style="font-size:22px;font-weight:700;color:#1793d1;">--</div>
+                <div style="font-size:10px;color:#717171;">installs</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Tigerbrew</div>
+                <div id="ctr-clawrtc-tiger" style="font-size:22px;font-weight:700;color:#ff6600;">--</div>
+                <div style="font-size:10px;color:#717171;">installs</div>
+            </div>
+        </div>
+        <script>
+        (function(){
+            var P = typeof _P !== "undefined" ? _P : "";
+            function fmt(n){if(n>=1e6)return (n/1e6).toFixed(1)+"M";if(n>=1e3)return (n/1e3).toFixed(1)+"K";return String(n);}
+            function load(url,id,key){
+                fetch(P+url).then(function(r){return r.json()}).then(function(d){
+                    var el=document.getElementById(id);
+                    if(el && d[key]!==undefined) el.textContent=fmt(d[key]);
+                }).catch(function(){});
+            }
+            load("/api/clawrtc-clawhub-downloads","ctr-clawrtc-clawhub","downloads");
+            load("/api/clawrtc-npm-downloads","ctr-clawrtc-npm","downloads");
+            load("/api/clawrtc-pypi-downloads","ctr-clawrtc-pypi","downloads");
+            fetch(P+"/api/clawrtc-github-stats").then(function(r){return r.json()}).then(function(d){
+                var s=document.getElementById("ctr-clawrtc-stars");
+                var f=document.getElementById("ctr-clawrtc-forks");
+                if(s && d.stars!==undefined) s.textContent=fmt(d.stars);
+                if(f && d.forks!==undefined) f.textContent=fmt(d.forks);
+            }).catch(function(){});
+            load("/api/platform-installs?product=clawrtc&platform=homebrew","ctr-clawrtc-brew","installs");
+            load("/api/platform-installs?product=clawrtc&platform=apt","ctr-clawrtc-apt","installs");
+            load("/api/platform-installs?product=clawrtc&platform=aur","ctr-clawrtc-aur","installs");
+            load("/api/platform-installs?product=clawrtc&platform=tigerbrew","ctr-clawrtc-tiger","installs");
+        })();
+        </script>
+
+        <!-- Grazer Counters -->
+        <div style="text-align:center;margin:12px auto 4px auto;max-width:700px;">
+            <span style="font-size:12px;color:#555;text-transform:uppercase;letter-spacing:2px;font-weight:600;">Grazer</span>
+        </div>
+        <div id="grazer-counters" style="margin:4px auto 20px auto;max-width:700px;display:flex;flex-wrap:wrap;justify-content:center;gap:20px;padding:16px 12px;background:rgba(33,33,33,0.7);border:1px solid #333;border-radius:10px;">
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">ClawHub</div>
+                <div id="ctr-grazer-clawhub" style="font-size:22px;font-weight:700;color:#3ea6ff;">--</div>
+                <div style="font-size:10px;color:#717171;">downloads</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">npm</div>
+                <div id="ctr-grazer-npm" style="font-size:22px;font-weight:700;color:#cb3837;">--</div>
+                <div style="font-size:10px;color:#717171;">downloads</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">PyPI</div>
+                <div id="ctr-grazer-pypi" style="font-size:22px;font-weight:700;color:#3775a9;">--</div>
+                <div style="font-size:10px;color:#717171;">downloads</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">GitHub</div>
+                <div id="ctr-grazer-stars" style="font-size:22px;font-weight:700;color:#f0c040;">--</div>
+                <div style="font-size:10px;color:#717171;">stars</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">GitHub</div>
+                <div id="ctr-grazer-forks" style="font-size:22px;font-weight:700;color:#8b949e;">--</div>
+                <div style="font-size:10px;color:#717171;">forks</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Homebrew</div>
+                <div id="ctr-grazer-brew" style="font-size:22px;font-weight:700;color:#fbb040;">--</div>
+                <div style="font-size:10px;color:#717171;">installs</div>
+            </div>
+            <div style="text-align:center;min-width:100px;">
+                <div style="font-size:11px;color:#717171;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">APT</div>
+                <div id="ctr-grazer-apt" style="font-size:22px;font-weight:700;color:#a3be8c;">--</div>
+                <div style="font-size:10px;color:#717171;">installs</div>
+            </div>
+        </div>
+        <script>
+        (function(){
+            var P = typeof _P !== "undefined" ? _P : "";
+            function fmt(n){if(n>=1e6)return (n/1e6).toFixed(1)+"M";if(n>=1e3)return (n/1e3).toFixed(1)+"K";return String(n);}
+            function load(url,id,key){
+                fetch(P+url).then(function(r){return r.json()}).then(function(d){
+                    var el=document.getElementById(id);
+                    if(el && d[key]!==undefined) el.textContent=fmt(d[key]);
+                }).catch(function(){});
+            }
+            load("/api/grazer-clawhub-downloads","ctr-grazer-clawhub","downloads");
+            load("/api/grazer-npm-downloads","ctr-grazer-npm","downloads");
+            load("/api/grazer-pypi-downloads","ctr-grazer-pypi","downloads");
+            fetch(P+"/api/grazer-github-stats").then(function(r){return r.json()}).then(function(d){
+                var s=document.getElementById("ctr-grazer-stars");
+                var f=document.getElementById("ctr-grazer-forks");
+                if(s && d.stars!==undefined) s.textContent=fmt(d.stars);
+                if(f && d.forks!==undefined) f.textContent=fmt(d.forks);
+            }).catch(function(){});
+            load("/api/platform-installs?product=grazer&platform=homebrew","ctr-grazer-brew","installs");
+            load("/api/platform-installs?product=grazer&platform=apt","ctr-grazer-apt","installs");
         })();
         </script>
 
