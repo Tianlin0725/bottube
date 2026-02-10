@@ -260,6 +260,29 @@ def compute_novelty_score(db, agent_id: int, title: str, description: str,
 _rate_buckets: dict = {}  # key -> list of timestamps
 _rate_last_prune = 0.0
 
+# Global rate limiting (human-friendly defaults).
+# These limits exist to blunt scraping/abuse, but should not interfere with normal browsing.
+#
+# Key idea:
+# - Do NOT count static/media asset requests (thumbnails/avatars/static) toward the global budget.
+# - Prefer per-visitor cookie budgets so mobile/carrier NAT doesn't punish real users.
+# - Keep a separate, stricter budget for requests that don't accept cookies (often scripts/scrapers).
+_RL_WINDOW_SECS = int(os.environ.get("BOTTUBE_RL_WINDOW_SECS", "60"))
+_RL_GLOBAL_RPM = int(os.environ.get("BOTTUBE_GLOBAL_RPM", "1200"))          # per visitor cookie (requests/min)
+_RL_GLOBAL_IP_RPM = int(os.environ.get("BOTTUBE_GLOBAL_IP_RPM", "5000"))    # per IP hard-cap (requests/min)
+_RL_NOCOOKIE_RPM = int(os.environ.get("BOTTUBE_NOCOOKIE_RPM", "300"))       # per IP when no visitor cookie (requests/min)
+_RL_SCRAPER_RPM = int(os.environ.get("BOTTUBE_SCRAPER_RPM", "60"))          # per IP for known scraper UAs (requests/min)
+
+_RL_EXEMPT_PREFIXES = (
+    "/static/",
+    "/thumbnails/",
+    "/avatars/",
+    "/avatar/",
+    "/badge/",
+    "/stats/",
+)
+_RL_EXEMPT_PATHS = {"/favicon.ico", "/robots.txt", "/sitemap.xml"}
+
 
 def _rate_limit(key: str, max_requests: int, window_secs: int) -> bool:
     """Return True if request is allowed, False if rate-limited."""
@@ -540,6 +563,12 @@ def _log_visitor():
 @app.before_request
 def track_visitors():
     """Track all visitors and detect scrapers."""
+    # Don't rate-limit or log asset/media requests. These can be bursty (many thumbnails/avatars),
+    # especially on mobile, and counting them leads to false-positive 429s.
+    path = request.path or ""
+    if path in _RL_EXEMPT_PATHS or any(path.startswith(p) for p in _RL_EXEMPT_PREFIXES):
+        return
+
     _log_visitor()
 
     # Rate limit scrapers more aggressively
@@ -549,12 +578,23 @@ def track_visitors():
 
     is_scraper = any(sig.lower() in ua_lower for sig in KNOWN_SCRAPERS)
     if is_scraper:
-        if not _rate_limit(f"scraper:{ip}", 30, 60):
+        if not _rate_limit(f"scraper:{ip}", _RL_SCRAPER_RPM, _RL_WINDOW_SECS):
             return Response("Rate limited", status=429)
     else:
-        # General IP rate limit: 120 requests/minute for regular visitors
-        if not _rate_limit(f"global:{ip}", 120, 60):
+        # General visitor rate limit: prefer per-visitor budgets (cookie) so carrier NAT doesn't
+        # punish legitimate users; still keep a generous per-IP cap.
+        if not _rate_limit(f"global_ip:{ip}", _RL_GLOBAL_IP_RPM, _RL_WINDOW_SECS):
             return Response("Rate limited", status=429)
+
+        is_new = getattr(g, "is_new_visitor", False)
+        visitor_id = getattr(g, "visitor_id", "")
+        if is_new or not visitor_id:
+            # No cookie yet (often scripts/scrapers). Keep a stricter per-IP cap.
+            if not _rate_limit(f"global_nocookie:{ip}", _RL_NOCOOKIE_RPM, _RL_WINDOW_SECS):
+                return Response("Rate limited", status=429)
+        else:
+            if not _rate_limit(f"global_vid:{visitor_id}", _RL_GLOBAL_RPM, _RL_WINDOW_SECS):
+                return Response("Rate limited", status=429)
 
 
 @app.after_request
@@ -7949,4 +7989,3 @@ if __name__ == "__main__":
     print(f"[BoTTube] DB: {DB_PATH}")
     print(f"[BoTTube] Videos: {VIDEO_DIR}")
     app.run(host="0.0.0.0", port=8097, debug=False)
-
