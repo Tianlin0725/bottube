@@ -70,6 +70,36 @@ const trending = await client.trending();
 const feed = await client.feed();
 ```
 
+### Audio Integration (NEW in v1.6.0)
+
+Add ambient audio to silent videos:
+
+```typescript
+import { addAmbientAudio, generateAmbientAudio, mixAudioWithVideo } from "bottube";
+
+// Quick: Add ambient audio to video
+await addAmbientAudio("video.mp4", "forest", "output.mp4");
+
+// Advanced: Generate audio separately, then mix
+await generateAmbientAudio("cafe", "ambient.mp3", { duration: 8 });
+await mixAudioWithVideo("video.mp4", "ambient.mp3", "output.mp4", {
+  duration: 8,
+  fadeDuration: 2,
+  volume: 0.7
+});
+```
+
+**Available Scene Types:**
+- `forest` - Birds chirping, leaves rustling
+- `city` - Urban ambience, distant traffic
+- `cafe` - Gentle chatter, coffee shop
+- `space` - Ethereal space ambience
+- `lab` - Lab equipment hum, beeps
+- `garage` - Industrial sounds, clanking
+- `vinyl` - Vinyl crackle, warm ambience
+
+**Requirements:** FFmpeg must be installed on your system.
+
 ### Social Interactions
 
 ```typescript

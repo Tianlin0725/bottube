@@ -1,19 +1,67 @@
 /**
+ * Audio utilities for BoTTube videos
+ *
+ * Provides ambient audio generation and mixing capabilities
+ * for adding sound to silent videos.
+ */
+type SceneType = "forest" | "city" | "cafe" | "space" | "lab" | "garage" | "vinyl";
+interface AudioOptions {
+    duration: number;
+    fadeDuration?: number;
+    volume?: number;
+}
+interface AmbientAudioProfile {
+    description: string;
+    filter: string;
+}
+/**
+ * Ambient audio profiles using FFmpeg audio synthesis
+ */
+declare const AMBIENT_PROFILES: Record<SceneType, AmbientAudioProfile>;
+/**
+ * Generate ambient audio for a specific scene type
+ */
+declare function generateAmbientAudio(sceneType: SceneType, outputPath: string, options: AudioOptions): Promise<void>;
+/**
+ * Mix audio with video file
+ */
+declare function mixAudioWithVideo(videoPath: string, audioPath: string, outputPath: string, options?: AudioOptions): Promise<void>;
+/**
+ * Get video duration using ffprobe
+ */
+declare function getVideoDuration(videoPath: string): Promise<number>;
+/**
+ * Add ambient audio to video (convenience function)
+ *
+ * @example
+ * ```ts
+ * await addAmbientAudio("video.mp4", "forest", "output.mp4");
+ * ```
+ */
+declare function addAmbientAudio(videoPath: string, sceneType: SceneType, outputPath: string, options?: Partial<AudioOptions>): Promise<void>;
+
+/**
  * BoTTube SDK — JavaScript/TypeScript client for the BoTTube Video Platform.
  *
  * The first video platform built for AI agents and humans.
  *
  * @example
  * ```ts
- * import { BoTTubeClient } from "bottube";
+ * import { BoTTubeClient, addAmbientAudio } from "bottube";
  *
  * const client = new BoTTubeClient({ apiKey: "bottube_sk_..." });
- * await client.upload("video.mp4", { title: "Hello BoTTube" });
+ *
+ * // Add ambient audio to video
+ * await addAmbientAudio("video.mp4", "forest", "output.mp4");
+ *
+ * // Upload to BoTTube
+ * await client.upload("output.mp4", { title: "Hello BoTTube" });
  * ```
  *
  * @see https://bottube.ai
  * @see https://github.com/Scottcjn/bottube
  */
+
 interface BoTTubeClientOptions {
     baseUrl?: string;
     apiKey?: string;
@@ -306,4 +354,4 @@ declare class BoTTubeClient {
     health(): Promise<HealthStatus>;
 }
 
-export { type Agent, BoTTubeClient, type BoTTubeClientOptions, BoTTubeError, type Category, type Comment, type CommentList, type Earning, type HealthStatus, type Notification, type PlatformStats, type Playlist, type UploadOptions, type Video, type VideoList, type Wallet, type Webhook, BoTTubeClient as default };
+export { AMBIENT_PROFILES, type Agent, type AmbientAudioProfile, type AudioOptions, BoTTubeClient, type BoTTubeClientOptions, BoTTubeError, type Category, type Comment, type CommentList, type Earning, type HealthStatus, type Notification, type PlatformStats, type Playlist, type SceneType, type UploadOptions, type Video, type VideoList, type Wallet, type Webhook, addAmbientAudio, BoTTubeClient as default, generateAmbientAudio, getVideoDuration, mixAudioWithVideo };

@@ -5,15 +5,23 @@
  *
  * @example
  * ```ts
- * import { BoTTubeClient } from "bottube";
+ * import { BoTTubeClient, addAmbientAudio } from "bottube";
  *
  * const client = new BoTTubeClient({ apiKey: "bottube_sk_..." });
- * await client.upload("video.mp4", { title: "Hello BoTTube" });
+ *
+ * // Add ambient audio to video
+ * await addAmbientAudio("video.mp4", "forest", "output.mp4");
+ *
+ * // Upload to BoTTube
+ * await client.upload("output.mp4", { title: "Hello BoTTube" });
  * ```
  *
  * @see https://bottube.ai
  * @see https://github.com/Scottcjn/bottube
  */
+
+// Export audio utilities
+export * from "./audio";
 
 // We use native fetch (Node 18+) or globalThis.fetch
 const _fetch = typeof globalThis !== "undefined" && globalThis.fetch
