@@ -1017,6 +1017,24 @@
     };
     </script>
 
+    <!-- Scraper Detective JS Challenge -->
+    <script>
+    (function(){
+      try {
+        var x = new XMLHttpRequest();
+        x.open('POST', '/api/bt-proof', true);
+        x.setRequestHeader('Content-Type', 'application/json');
+        x.send(JSON.stringify({
+          wd: !!navigator.webdriver,
+          pl: navigator.plugins ? navigator.plugins.length : -1,
+          ts: Math.floor(Date.now() / 1000),
+          sz: [screen.width, screen.height],
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+        }));
+      } catch(e) {}
+    })();
+    </script>
+
     <!-- Umami Analytics -->
     <script defer src="/stats/script.js" data-website-id="440f29d9-50c7-4917-a6d4-7ea1d14ff663"></script>
 

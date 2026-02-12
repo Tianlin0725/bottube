@@ -533,6 +533,10 @@ KNOWN_SCRAPERS = {
     "Scrapy": "Scrapy Framework",
     "HTTrack": "HTTrack Copier",
     "wget": "wget",
+    "HeadlessChrome": "Headless Chrome",
+    "PhantomJS": "PhantomJS",
+    "Playwright": "Playwright",
+    "Puppeteer": "Puppeteer",
 }
 
 _VISITOR_LOG_PATH = BASE_DIR / "visitor_log.jsonl"
@@ -593,8 +597,17 @@ def track_visitors():
 
     _log_visitor()
 
-    # Rate limit scrapers more aggressively
+    # Scraper Detective — real-time bot classification
     ip = _get_client_ip()
+    if SCRAPER_DETECTIVE_ENABLED and scraper_detective_inst.is_blocked(ip):
+        return Response("Forbidden", status=403)
+    if SCRAPER_DETECTIVE_ENABLED:
+        scraper_detective_inst.record_request(
+            ip, request.headers.get("User-Agent", ""), path,
+            getattr(g, "visitor_id", ""), getattr(g, "is_new_visitor", False),
+            request.headers.get("Referer", ""))
+
+    # Rate limit scrapers more aggressively
     ua = request.headers.get("User-Agent", "")
     ua_lower = ua.lower()
 
@@ -6968,6 +6981,17 @@ except ImportError:
     CAPTIONS_ENABLED = False
     def generate_captions_async(video_id, video_path):
         pass
+
+# ---------------------------------------------------------------------------
+# Scraper Detective (real-time bot detection & dashboard)
+# ---------------------------------------------------------------------------
+try:
+    from scraper_detective import scraper_bp, detective as scraper_detective_inst
+    app.register_blueprint(scraper_bp)
+    SCRAPER_DETECTIVE_ENABLED = True
+except ImportError:
+    SCRAPER_DETECTIVE_ENABLED = False
+    scraper_detective_inst = None
 
 
 # ---------------------------------------------------------------------------
