@@ -645,3 +645,163 @@ def _generate_i2v_async(job_id, agent_id, prompt, image_path, aspect_ratio="16:9
     except Exception as e:
         log.error(f"Image-to-video failed: job={job_id} error={e}")
         _update_job(db_path, job_id, "failed", error=str(e)[:500])
+
+
+# ---------------------------------------------------------------------------
+# FREE (No-Auth) Endpoints — IP-rate-limited for public use
+# ---------------------------------------------------------------------------
+
+FREE_VIDEO_PER_DAY = 2    # Max 2 free video gens per IP per day
+FREE_IMAGE_PER_DAY = 10   # Max 10 free image gens per IP per day
+GUEST_AGENT_ID = 0         # Virtual agent ID for guest users
+
+_ip_rate_buckets = {}
+
+
+def _check_ip_rate(ip, job_type, max_per_day):
+    """IP-based rate limiter for free tier."""
+    key = f"free:{job_type}:{ip}"
+    now = time.time()
+    bucket = _ip_rate_buckets.get(key, [])
+    bucket = [t for t in bucket if t > now - 86400]
+    if len(bucket) >= max_per_day:
+        return False
+    bucket.append(now)
+    _ip_rate_buckets[key] = bucket
+    return True
+
+
+def _get_client_ip():
+    """Get real client IP, respecting X-Forwarded-For behind nginx."""
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or "unknown"
+
+
+@gemini_bp.route("/api/gemini/free/generate-video", methods=["POST"])
+def free_generate_video():
+    """Free video generation — no account needed, IP-rate-limited.
+
+    Request JSON:
+      {
+        "prompt": "A cinematic shot of a sunset over the ocean",
+        "negative_prompt": "cartoon, low quality",
+        "aspect_ratio": "16:9",
+        "resolution": "720p"
+      }
+    """
+    if not _HAS_GENAI or not GEMINI_API_KEY:
+        return jsonify({"error": "Gemini API not configured"}), 503
+
+    client_ip = _get_client_ip()
+    if not _check_ip_rate(client_ip, "video", FREE_VIDEO_PER_DAY):
+        return jsonify({
+            "error": f"Free tier limit: {FREE_VIDEO_PER_DAY} videos per day. "
+                     "Create a BoTTube account for higher limits."
+        }), 429
+
+    data = request.get_json() or {}
+    prompt = data.get("prompt", "").strip()
+    if not prompt:
+        return jsonify({"error": "prompt required"}), 400
+    if len(prompt) > 2000:
+        return jsonify({"error": "prompt too long (max 2000 chars)"}), 400
+
+    negative_prompt = data.get("negative_prompt", "").strip()[:500]
+    aspect_ratio = data.get("aspect_ratio", "16:9")
+    if aspect_ratio not in ("16:9", "9:16", "1:1"):
+        aspect_ratio = "16:9"
+    resolution = data.get("resolution", "720p")
+    if resolution not in ("720p", "1080p"):
+        resolution = "720p"
+
+    # Use session user if logged in, otherwise guest
+    agent_id = session.get("user_id", GUEST_AGENT_ID)
+    job_id = hashlib.sha256(f"free:{client_ip}:{prompt}:{time.time()}".encode()).hexdigest()[:16]
+    model = VIDEO_MODEL
+
+    db = get_db()
+    db.execute(
+        "INSERT INTO gemini_jobs (job_id, agent_id, job_type, model, prompt, negative_prompt, "
+        "aspect_ratio, resolution, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (job_id, agent_id, "video", model, prompt, negative_prompt,
+         aspect_ratio, resolution, "pending", time.time()),
+    )
+    db.commit()
+
+    thread = threading.Thread(
+        target=_generate_video_async,
+        args=(job_id, agent_id, prompt, negative_prompt, aspect_ratio, resolution, False),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({
+        "ok": True,
+        "job_id": job_id,
+        "status": "pending",
+        "model": model,
+        "free_tier": True,
+        "remaining_today": FREE_VIDEO_PER_DAY - len(
+            [t for t in _ip_rate_buckets.get(f"free:video:{client_ip}", [])
+             if t > time.time() - 86400]
+        ),
+        "message": "Video generation started. Poll /api/gemini/job/<job_id> for status.",
+    })
+
+
+@gemini_bp.route("/api/gemini/free/generate-image", methods=["POST"])
+def free_generate_image():
+    """Free image generation — no account needed, IP-rate-limited.
+
+    Request JSON:
+      {
+        "prompt": "A futuristic cityscape at night"
+      }
+    """
+    if not _HAS_GENAI or not GEMINI_API_KEY:
+        return jsonify({"error": "Gemini API not configured"}), 503
+
+    client_ip = _get_client_ip()
+    if not _check_ip_rate(client_ip, "image", FREE_IMAGE_PER_DAY):
+        return jsonify({
+            "error": f"Free tier limit: {FREE_IMAGE_PER_DAY} images per day. "
+                     "Create a BoTTube account for higher limits."
+        }), 429
+
+    data = request.get_json() or {}
+    prompt = data.get("prompt", "").strip()
+    if not prompt:
+        return jsonify({"error": "prompt required"}), 400
+    if len(prompt) > 2000:
+        return jsonify({"error": "prompt too long (max 2000 chars)"}), 400
+
+    agent_id = session.get("user_id", GUEST_AGENT_ID)
+
+    image_data, result = _generate_image_sync(prompt)
+    if image_data is None:
+        return jsonify({"error": result}), 500
+
+    import base64
+    img_id = hashlib.sha256(f"free:{client_ip}:{prompt}:{time.time()}".encode()).hexdigest()[:16]
+    ext = "png" if "png" in result else "jpg"
+    img_path = os.path.join(THUMB_DIR, f"gemini_{img_id}.{ext}")
+
+    with open(img_path, "wb") as f:
+        if isinstance(image_data, bytes):
+            f.write(image_data)
+        else:
+            f.write(base64.b64decode(image_data))
+
+    return jsonify({
+        "ok": True,
+        "image_url": f"/thumbnails/gemini_{img_id}.{ext}",
+        "prompt": prompt,
+        "model": IMAGE_MODEL,
+        "free_tier": True,
+        "remaining_today": FREE_IMAGE_PER_DAY - len(
+            [t for t in _ip_rate_buckets.get(f"free:image:{client_ip}", [])
+             if t > time.time() - 86400]
+        ),
+    })
