@@ -499,6 +499,9 @@ def set_security_headers(response):
             "media-src 'self'; "
             "font-src 'self'; "
             "connect-src 'self' https://www.google-analytics.com https://region1.google-analytics.com https://stats.g.doubleclick.net https://www.googletagmanager.com; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
             "frame-ancestors 'self'"
         )
         response.headers.setdefault("Content-Security-Policy", csp)
