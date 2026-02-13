@@ -274,7 +274,7 @@
             <p style="color:var(--text-secondary);margin-bottom:16px;">
                 Swap SOL for wRTC on Raydium DEX, then deposit here to tip creators.
             </p>
-            <a href="{{ swap_url }}" target="_blank" rel="noopener" class="btn-primary btn-buy">
+            <a id="wrtc-buy-btn" href="{{ swap_url }}" target="_blank" rel="noopener" class="btn-primary btn-buy">
                 Swap SOL &#8594; wRTC on Raydium
             </a>
             <div style="margin-top:16px;">
@@ -288,10 +288,10 @@
 
         <!-- Deposit wRTC -->
         <div class="bridge-card">
-            <h2><span class="icon">&#11015;&#65039;</span> Deposit wRTC</h2>
+            <h2><span class="icon">&#11015;&#65039;</span> Deposit Credits</h2>
             {% if current_user %}
             <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px;">
-                Send wRTC to the reserve wallet below, then paste your transaction signature to receive credits.
+                Already sent wRTC to the reserve wallet? Paste your Solana transaction signature below to verify and credit your BoTTube account.
             </p>
             <div class="field-group">
                 <label>Reserve Wallet (send wRTC here)</label>
@@ -301,11 +301,11 @@
                 </div>
             </div>
             <div class="field-group">
-                <label>Transaction Signature</label>
-                <input type="text" id="wrtc-deposit-tx" placeholder="Paste your Solana transaction signature...">
+                <label>Transaction Signature (Solana)</label>
+                <input type="text" id="wrtc-deposit-tx" placeholder="5X... (Base58 signature)">
             </div>
-            <button class="btn-primary" id="wrtc-deposit-btn" onclick="submitWrtcDeposit()">Verify &amp; Credit</button>
-            <div class="fee-info">No deposit fee. Minimum deposit: 1 wRTC. Credits appear instantly after on-chain confirmation.</div>
+            <button class="btn-primary" id="wrtc-deposit-btn" onclick="submitWrtcDeposit()">Verify Transaction</button>
+            <div class="fee-info">No deposit fee. Minimum deposit: 1 wRTC. Credits appear after on-chain confirmation. Security: sender wallet must match your bound Solana address.</div>
             <div class="result-box" id="wrtc-deposit-result"></div>
             {% else %}
             <p style="color:var(--text-secondary);"><a href="{{ P }}/login">Log in</a> to deposit wRTC to your account.</p>
@@ -314,21 +314,24 @@
 
         <!-- Withdraw wRTC -->
         <div class="bridge-card">
-            <h2><span class="icon">&#11014;&#65039;</span> Withdraw wRTC</h2>
+            <h2><span class="icon">&#11014;&#65039;</span> Withdraw Credits</h2>
+            <p style="color:var(--text-secondary);font-size:14px;margin-top:-6px;margin-bottom:16px;">
+                Convert your internal BoTTube credits back to on-chain wRTC. Withdrawals are processed safely from the reserve vault.
+            </p>
             {% if current_user %}
             <div class="balance-display">
                 {{ "%.2f"|format(user_balance) }} RTC
                 <span class="label">Your Balance</span>
             </div>
             <div class="field-group">
-                <label>Solana Wallet Address</label>
-                <input type="text" id="wrtc-withdraw-addr" placeholder="Your SOL address..." value="{{ user_sol_address or '' }}">
+                <label>Destination Wallet (Solana)</label>
+                <input type="text" id="wrtc-withdraw-addr" placeholder="Your Solana public key" value="{{ user_sol_address or '' }}">
             </div>
             <div class="field-group">
-                <label>Amount (wRTC)</label>
+                <label>Amount to Withdraw (wRTC)</label>
                 <input type="number" id="wrtc-withdraw-amount" placeholder="10.0" min="10" step="0.1">
             </div>
-            <button class="btn-primary" id="wrtc-withdraw-btn" onclick="submitWrtcWithdraw()">Request Withdrawal</button>
+            <button class="btn-primary" id="wrtc-withdraw-btn" onclick="submitWrtcWithdraw()">Queue Vault Withdrawal</button>
             <div class="fee-info">Withdrawal fee: 0.5 wRTC. Minimum: 10 wRTC. Processed within 1 hour.</div>
             <div class="result-box" id="wrtc-withdraw-result"></div>
             {% else %}
@@ -543,6 +546,12 @@
 <script>
 const P = "{{ P }}";
 
+function trackFunnel(name, details = {}) {
+    try {
+        if (window.btTrack) window.btTrack(name, details);
+    } catch (e) {}
+}
+
 // ─── Tab switching ──────────────────────────────────────────
 function switchChain(chain) {
     document.querySelectorAll(".chain-tab").forEach(t => t.classList.remove("active"));
@@ -559,6 +568,8 @@ function switchChain(chain) {
     // Update URL without reload
     const slug = chain === "wrtc" ? "/bridge/wrtc" : "/bridge/" + chain;
     history.replaceState(null, "", P + slug);
+
+    trackFunnel("funnel-bridge-switch-chain", {chain});
 }
 
 // ─── Copy to clipboard ─────────────────────────────────────
@@ -586,6 +597,7 @@ async function submitWrtcDeposit() {
     const tx = document.getElementById("wrtc-deposit-tx").value.trim();
     if (!tx) return showResult("wrtc-deposit-result", false, "Paste a transaction signature.");
     const btn = document.getElementById("wrtc-deposit-btn");
+    trackFunnel("funnel-wrtc-deposit-start");
     btn.disabled = true; btn.textContent = "Verifying on-chain...";
     try {
         const resp = await fetch(P + "/api/bridge/deposit", {
@@ -594,14 +606,17 @@ async function submitWrtcDeposit() {
         });
         const data = await resp.json();
         if (data.ok) {
+            trackFunnel("funnel-wrtc-deposit-ok", {credited: data.credited});
             showResult("wrtc-deposit-result", true, `Deposited ${data.credited} wRTC! New balance: ${data.new_balance} wRTC`);
         } else {
+            trackFunnel("funnel-wrtc-deposit-fail", {error: data.error || ""});
             showResult("wrtc-deposit-result", false, data.error || "Verification failed");
         }
     } catch (e) {
+        trackFunnel("funnel-wrtc-deposit-error");
         showResult("wrtc-deposit-result", false, "Network error — try again.");
     }
-    btn.disabled = false; btn.textContent = "Verify & Credit";
+    btn.disabled = false; btn.textContent = "Verify Transaction";
 }
 
 async function submitWrtcWithdraw() {
@@ -610,6 +625,7 @@ async function submitWrtcWithdraw() {
     if (!addr || addr.length < 32) return showResult("wrtc-withdraw-result", false, "Enter a valid Solana address.");
     if (!amount || amount < 10) return showResult("wrtc-withdraw-result", false, "Minimum withdrawal is 10 wRTC.");
     const btn = document.getElementById("wrtc-withdraw-btn");
+    trackFunnel("funnel-wrtc-withdraw-start", {amount});
     btn.disabled = true; btn.textContent = "Processing...";
     try {
         const resp = await fetch(P + "/api/bridge/withdraw", {
@@ -618,20 +634,29 @@ async function submitWrtcWithdraw() {
         });
         const data = await resp.json();
         if (data.ok) {
+            trackFunnel("funnel-wrtc-withdraw-ok", {net: data.net});
             showResult("wrtc-withdraw-result", true, `Withdrawal queued: ${data.net} wRTC to ${addr.slice(0,8)}...`);
         } else {
+            trackFunnel("funnel-wrtc-withdraw-fail", {error: data.error || ""});
             showResult("wrtc-withdraw-result", false, data.error || "Withdrawal failed");
         }
     } catch (e) {
+        trackFunnel("funnel-wrtc-withdraw-error");
         showResult("wrtc-withdraw-result", false, "Network error — try again.");
     }
-    btn.disabled = false; btn.textContent = "Request Withdrawal";
+    btn.disabled = false; btn.textContent = "Queue Vault Withdrawal";
 }
+
+let _wrtcHistoryTracked = false;
 
 async function loadWrtcHistory() {
     const el = document.getElementById("wrtc-history");
     if (!el) return;
     try {
+        if (!_wrtcHistoryTracked) {
+            _wrtcHistoryTracked = true;
+            trackFunnel("funnel-wrtc-history-view");
+        }
         const resp = await fetch(P + "/api/bridge/history");
         const data = await resp.json();
         if (!data.ok) { el.innerHTML = "<p style='color:var(--text-muted)'>Could not load history.</p>"; return; }
@@ -775,6 +800,17 @@ async function loadBridgeStats() {
 // ═══════════════════════════════════════════════════════════
 
 document.addEventListener("DOMContentLoaded", () => {
+    const path = window.location.pathname;
+    let chain = "wrtc";
+    if (path.includes("/bridge/ergo")) chain = "ergo";
+    else if (path.includes("/bridge/btc")) chain = "btc";
+    else if (path.includes("/bridge/ltc")) chain = "ltc";
+    else if (path.includes("/bridge/doge")) chain = "doge";
+    trackFunnel("funnel-bridge-view", {chain});
+
+    const buyBtn = document.getElementById("wrtc-buy-btn");
+    if (buyBtn) buyBtn.addEventListener("click", () => trackFunnel("funnel-wrtc-buy-click"));
+
     loadBridgeStats();
     {% if current_user %}
     loadWrtcHistory();
@@ -782,7 +818,6 @@ document.addEventListener("DOMContentLoaded", () => {
     {% endif %}
 
     // Open correct tab based on URL
-    const path = window.location.pathname;
     if (path.includes("/bridge/ergo")) switchChain("ergo");
     else if (path.includes("/bridge/btc")) switchChain("btc");
     else if (path.includes("/bridge/ltc")) switchChain("ltc");
