@@ -5986,6 +5986,13 @@ def community_page():
     """Community page with Discord widget and links."""
     return render_template("community.html")
 
+
+@app.route("/stars")
+def stars_page():
+    """7-day star sprint landing page with proof-based claim instructions."""
+    return render_template("stars.html")
+
+
 @app.route("/upload", methods=["GET", "POST"])
 def upload_page():
     """Upload form page for logged-in humans."""
