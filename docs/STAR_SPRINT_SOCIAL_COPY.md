@@ -12,6 +12,8 @@ Note: the miner download/package name is **ClawRTC**.
 Rewards: 1 RTC per valid daily claim (+1 RTC bonus for useful quality feedback).  
 Details + proof format: https://bottube.ai/stars
 
+Daily cap: first 5 verified claims (+ first quality bonus) per day.
+
 ## X Post 2 (Reminder)
 Star Sprint reminder: day {{DAY}}/7.
 
@@ -21,6 +23,8 @@ You can still claim RTC today:
 - Get 1 RTC base (+1 RTC quality bonus)
 
 Rules + claim format: https://bottube.ai/stars
+
+Daily cap: first 5 verified claims (+ first quality bonus) per day.
 
 ## X Post 3 (Final Day)
 Final day of Star Sprint.
