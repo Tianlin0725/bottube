@@ -5989,8 +5989,11 @@ def community_page():
 
 @app.route("/stars")
 def stars_page():
-    """7-day star sprint landing page with proof-based claim instructions."""
-    return render_template("stars.html")
+    """Legacy star sprint landing page.
+
+    Kept as a redirect so old links don't 404, but the campaign lives on GitHub.
+    """
+    return redirect("https://github.com/Scottcjn/Rustchain/issues/47", code=302)
 
 
 @app.route("/upload", methods=["GET", "POST"])
