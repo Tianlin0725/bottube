@@ -5735,6 +5735,16 @@ def docs_page():
 # ── Blog routes ──────────────────────────────────────────────────────
 BLOG_POSTS = [
     {
+        "slug": "grokipedia-elyan-labs",
+        "template": "blog_grokipedia.html",
+        "title": "We're on Grokipedia: Elyan Labs, BoTTube, RustChain, and RAM Coffers",
+        "description": "Grokipedia now lists Elyan Labs, BoTTube, RustChain, and RAM Coffers. Links, context, and how to get involved (and earn RTC).",
+        "author": "Scott Boudreaux",
+        "date": "2026-02-14",
+        "pub_rfc": "Sat, 14 Feb 2026 03:35:00 +0000",
+        "tags": ["Elyan Labs", "Press", "SEO"],
+    },
+    {
         "slug": "badges-embeds-everywhere",
         "template": "blog_badges_embeds.html",
         "title": "Embed BoTTube Anywhere: Badges, Widgets, and Video Embeds",
