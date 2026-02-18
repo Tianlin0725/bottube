@@ -4,7 +4,7 @@ Grok Unified Agent — PR Review + Video Pipeline for RustChain/BoTTube
 
 Combines:
   1. PR Review: Scans PRs, detects bounty farming, posts review comments
-  2. Video Gen: Generates videos via Grok Imagine Video API
+  2. Video Gen: Generates videos via provider router (Grok Imagine / Runway)
   3. Upload:    Downloads, compresses, and uploads to BoTTube
 
 Usage:
@@ -29,7 +29,8 @@ Usage:
     python3 grok_agent.py all --dry-run
 
 Environment:
-    GROK_API_KEY     xAI API key
+    GROK_API_KEY          xAI API key
+    RUNWAYML_API_SECRET   Runway API key
     GITHUB_TOKEN     GitHub personal access token
     VPS_HOST         BoTTube VPS (default: 50.28.86.153)
     VPS_PASS         VPS SSH password
@@ -43,6 +44,14 @@ import subprocess
 import time
 import tempfile
 import hashlib
+from pathlib import Path
+
+# Allow imports from repo root when called as: python3 tools/grok_agent.py ...
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from providers.router import generate_video
 
 # ─── Config ───────────────────────────────────────────────────────────
 GROK_API_KEY = os.environ.get("GROK_API_KEY", "")
@@ -89,70 +98,7 @@ def grok_chat(messages, model=None, temperature=0.1):
     return data["choices"][0]["message"]["content"]
 
 
-def grok_generate_video(prompt, duration=5, aspect_ratio="1:1", resolution="720p"):
-    """Submit video generation request. Returns request_id."""
-    payload = json.dumps({
-        "model": "grok-imagine-video",
-        "prompt": prompt,
-        "duration": duration,
-        "aspect_ratio": aspect_ratio,
-        "resolution": resolution
-    })
-    result = subprocess.run(
-        ["curl", "-s", "https://api.x.ai/v1/videos/generations",
-         "-H", "Content-Type: application/json",
-         "-H", f"Authorization: Bearer {GROK_API_KEY}",
-         "-d", payload],
-        capture_output=True, text=True, timeout=30
-    )
-    resp = json.loads(result.stdout)
-    if "error" in resp:
-        raise Exception(f"Grok video API error: {resp['error']}")
-    request_id = resp.get("request_id")
-    if not request_id:
-        raise Exception(f"No request_id: {resp}")
-    return request_id
-
-
-def grok_poll_video(request_id, max_wait=300):
-    """Poll for video completion. Returns video URL."""
-    for attempt in range(max_wait // 5):
-        time.sleep(5)
-        result = subprocess.run(
-            ["curl", "-s", f"https://api.x.ai/v1/videos/{request_id}",
-             "-H", f"Authorization: Bearer {GROK_API_KEY}"],
-            capture_output=True, text=True, timeout=30
-        )
-        resp = json.loads(result.stdout)
-        status = resp.get("status", "unknown")
-
-        if status == "completed":
-            url = resp.get("video_url")
-            if url:
-                return url
-            raise Exception(f"Completed but no video_url: {resp}")
-        elif status in ("failed", "error"):
-            raise Exception(f"Video generation failed: {resp}")
-
-        if attempt % 6 == 0:
-            print(f"    Still generating... ({attempt * 5}s elapsed)")
-
-    raise Exception(f"Timeout after {max_wait}s")
-
-
 # ─── Video Pipeline ──────────────────────────────────────────────────
-
-def download_video(url, output_path):
-    """Download video from URL."""
-    result = subprocess.run(
-        ["curl", "-sL", "-o", output_path, url],
-        capture_output=True, text=True, timeout=120
-    )
-    size = os.path.getsize(output_path)
-    if size < 1000:
-        raise Exception(f"Download too small ({size} bytes) — URL may have expired")
-    return size
-
 
 def prepare_video(input_path, output_path):
     """Compress and resize video for BoTTube constraints."""
@@ -237,32 +183,61 @@ def upload_to_bottube(video_path, agent_slug, title, description=""):
         raise Exception(f"Upload response not JSON: {result.stdout[:200]}")
 
 
-def video_pipeline(prompt, agent_slug, title, description="", dry_run=False):
-    """Full pipeline: generate → download → compress → upload."""
+def video_pipeline(
+    prompt,
+    agent_slug,
+    title,
+    description="",
+    duration=5,
+    provider="auto",
+    no_fallback=False,
+    aspect_ratio="1:1",
+    resolution="720p",
+    grok_model="grok-imagine-video",
+    runway_model="gen4.5",
+    runway_ratio="1280:720",
+    runway_audio=False,
+    runway_image=None,
+    dry_run=False,
+):
+    """Full pipeline: generate via router -> compress -> upload."""
     print(f"\n  VIDEO PIPELINE: {agent_slug}")
     print(f"  Title: {title}")
     print(f"  Prompt: {prompt[:80]}...")
+    print(f"  Provider: {provider} (fallback={'off' if no_fallback else 'on'})")
 
     if dry_run:
         print("  [DRY RUN] Would generate and upload")
         return {"dry_run": True}
 
-    # Step 1: Generate
-    print("  [1/4] Submitting to Grok Imagine Video...")
-    request_id = grok_generate_video(prompt)
-    print(f"    Request ID: {request_id}")
-
-    # Step 2: Poll and download
-    print("  [2/4] Waiting for generation...")
-    video_url = grok_poll_video(request_id)
-    print(f"    Video URL: {video_url}")
-
     with tempfile.TemporaryDirectory() as tmpdir:
         raw_path = os.path.join(tmpdir, "raw.mp4")
         ready_path = os.path.join(tmpdir, "ready.mp4")
 
-        print("  [3/4] Downloading and compressing...")
-        download_video(video_url, raw_path)
+        # Step 1: Generate via provider router
+        print("  [1/4] Generating video via provider router...")
+        generation = generate_video(
+            prompt=prompt,
+            prefer=provider,
+            fallback=not no_fallback,
+            duration=duration,
+            output_path=raw_path,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            grok_model=grok_model,
+            runway_model=runway_model,
+            ratio=runway_ratio,
+            audio=runway_audio,
+            prompt_image=runway_image,
+        )
+        print(f"    Provider used: {generation.provider}")
+
+        source_id = generation.metadata.get("request_id") or generation.metadata.get("task_id")
+        if source_id:
+            print(f"    Job ID: {source_id}")
+
+        # Step 2: Compress
+        print("  [2/4] Compressing video...")
         raw_mb = os.path.getsize(raw_path) / (1024 * 1024)
         print(f"    Raw: {raw_mb:.1f}MB")
 
@@ -270,11 +245,12 @@ def video_pipeline(prompt, agent_slug, title, description="", dry_run=False):
         print(f"    Compressed: {size_mb:.1f}MB")
 
         # Step 3: Upload
-        print("  [4/4] Uploading to BoTTube...")
+        print("  [3/4] Uploading to BoTTube...")
         result = upload_to_bottube(ready_path, agent_slug, title, description)
         video_id = result.get("video_id", "?")
         print(f"    Uploaded! ID: {video_id}")
         print(f"    Watch: https://bottube.ai/watch/{video_id}")
+        result["provider"] = generation.provider
 
     return result
 
@@ -452,11 +428,30 @@ def main():
     vid.add_argument("--title", required=True, help="Video title")
     vid.add_argument("--description", default="", help="Video description")
     vid.add_argument("--duration", type=int, default=5)
+    vid.add_argument("--provider", default="auto", choices=["auto", "grok", "runway"])
+    vid.add_argument("--no-fallback", action="store_true", help="Disable provider fallback")
+    vid.add_argument("--aspect-ratio", default="1:1", choices=["1:1", "16:9", "9:16"])
+    vid.add_argument("--resolution", default="720p", choices=["720p", "1080p"])
+    vid.add_argument("--grok-model", default="grok-imagine-video")
+    vid.add_argument("--runway-model", default=os.environ.get("RUNWAY_MODEL", "gen4.5"))
+    vid.add_argument("--runway-ratio", default=os.environ.get("RUNWAY_RATIO", "1280:720"))
+    vid.add_argument("--runway-audio", action="store_true")
+    vid.add_argument("--runway-image", help="Image path/URL for Runway image-to-video modes")
     vid.add_argument("--dry-run", action="store_true")
 
     # batch-video subcommand
     batch = sub.add_parser("batch-video", help="Generate videos for multiple agents")
     batch.add_argument("specs", nargs="+", help="agent:prompt pairs")
+    batch.add_argument("--duration", type=int, default=5)
+    batch.add_argument("--provider", default="auto", choices=["auto", "grok", "runway"])
+    batch.add_argument("--no-fallback", action="store_true", help="Disable provider fallback")
+    batch.add_argument("--aspect-ratio", default="1:1", choices=["1:1", "16:9", "9:16"])
+    batch.add_argument("--resolution", default="720p", choices=["720p", "1080p"])
+    batch.add_argument("--grok-model", default="grok-imagine-video")
+    batch.add_argument("--runway-model", default=os.environ.get("RUNWAY_MODEL", "gen4.5"))
+    batch.add_argument("--runway-ratio", default=os.environ.get("RUNWAY_RATIO", "1280:720"))
+    batch.add_argument("--runway-audio", action="store_true")
+    batch.add_argument("--runway-image", help="Image path/URL for Runway image-to-video modes")
     batch.add_argument("--dry-run", action="store_true")
 
     # all subcommand
@@ -477,6 +472,18 @@ def main():
 
     print(f"Grok Agent — Model: {GROK_MODEL}")
 
+    if args.command in ("video", "batch-video"):
+        runway_key = os.environ.get("RUNWAYML_API_SECRET", "")
+        if args.provider == "grok" and not GROK_API_KEY:
+            print("ERROR: provider=grok requires GROK_API_KEY")
+            return
+        if args.provider == "runway" and not runway_key:
+            print("ERROR: provider=runway requires RUNWAYML_API_SECRET")
+            return
+        if args.provider == "auto" and not (GROK_API_KEY or runway_key):
+            print("ERROR: provider=auto needs at least one key (GROK_API_KEY or RUNWAYML_API_SECRET)")
+            return
+
     if args.command == "review":
         if args.pr and args.repo:
             prs = get_open_prs(args.repo)
@@ -491,8 +498,23 @@ def main():
             scan_prs(dry_run=args.dry_run)
 
     elif args.command == "video":
-        video_pipeline(args.prompt, args.agent, args.title,
-                      args.description, dry_run=args.dry_run)
+        video_pipeline(
+            args.prompt,
+            args.agent,
+            args.title,
+            args.description,
+            duration=args.duration,
+            provider=args.provider,
+            no_fallback=args.no_fallback,
+            aspect_ratio=args.aspect_ratio,
+            resolution=args.resolution,
+            grok_model=args.grok_model,
+            runway_model=args.runway_model,
+            runway_ratio=args.runway_ratio,
+            runway_audio=args.runway_audio,
+            runway_image=args.runway_image,
+            dry_run=args.dry_run,
+        )
 
     elif args.command == "batch-video":
         # Parse "agent:prompt" pairs
@@ -502,7 +524,22 @@ def main():
                 continue
             agent, prompt = spec.split(":", 1)
             title = prompt[:50].strip()
-            video_pipeline(prompt, agent.strip(), title, dry_run=args.dry_run)
+            video_pipeline(
+                prompt,
+                agent.strip(),
+                title,
+                duration=args.duration,
+                provider=args.provider,
+                no_fallback=args.no_fallback,
+                aspect_ratio=args.aspect_ratio,
+                resolution=args.resolution,
+                grok_model=args.grok_model,
+                runway_model=args.runway_model,
+                runway_ratio=args.runway_ratio,
+                runway_audio=args.runway_audio,
+                runway_image=args.runway_image,
+                dry_run=args.dry_run,
+            )
 
     elif args.command == "prompt":
         # Ask Grok to generate creative video prompts for an agent
